@@ -21,10 +21,11 @@ type championPicker struct {
 	cancelled bool
 }
 
-func PickChampion(title string, all []Champion) (string, error) {
+func PickChampion(title string, all []Champion, initial string) (string, error) {
 	input := textinput.New()
 	input.Placeholder = "type to search, e.g. fiora or fiora typo"
 	input.Focus()
+	input.SetValue(initial)
 	input.CharLimit = 40
 	m := championPicker{title: title, input: input, all: all}
 	m.filter()

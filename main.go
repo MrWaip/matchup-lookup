@@ -49,17 +49,8 @@ func run() error {
 			return err
 		}
 		defer store.Close()
-		key, err := configuredRiotKey(store)
-		if err != nil {
-			return err
-		}
-		if key == "" {
-			return fmt.Errorf("set Riot API key in the interactive menu or RIOT_API_KEY")
-		}
 		fmt.Println("Database:", path)
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer stop()
-		return ImportSeeds(ctx, store, NewRiotClient(key), seeds)
+		return ImportSeeds(store, seeds)
 	case "update":
 		if len(os.Args) != 2 {
 			return fmt.Errorf("update takes no arguments; use import -source to add players")
@@ -99,7 +90,7 @@ func run() error {
 		flags.IntVar(&f.MinMinutes, "min-minutes", 0, "minimum game duration")
 		flags.StringVar(&f.Patch, "patch", "", "patch, e.g. 16.19")
 		flags.StringVar(&f.Player, "player", "", "tracked player game name or PUUID")
-		flags.StringVar(&f.Region, "region", "euw1", "platform (euw1)")
+		flags.StringVar(&f.Region, "region", "", "platform (euw1, na1, etc.); empty = any")
 		flags.IntVar(&f.Limit, "limit", 100, "maximum rows shown")
 		if err := flags.Parse(os.Args[2:]); err != nil {
 			return err
@@ -111,6 +102,9 @@ func run() error {
 		defer store.Close()
 		rows, players, total, matches, wins, err := Search(store, f)
 		if err != nil {
+			return err
+		}
+		if err := store.SaveFilters(f); err != nil {
 			return err
 		}
 		PrintResults(rows, players, total, matches, wins)
@@ -128,7 +122,7 @@ func run() error {
 }
 
 func usage() {
-	fmt.Println(`matchup-lookup: recent EUW Solo/Duo champion matchups
+	fmt.Println(`matchup-lookup: recent Solo/Duo champion matchups
 
 Run without a command for the interactive menu.
 

@@ -5,6 +5,7 @@ type Seed struct {
 	TagLine  string `json:"tagLine"`
 	Region   string `json:"region"`
 	Source   string `json:"source"`
+	Champion string `json:"champion,omitempty"`
 }
 
 type Account struct {

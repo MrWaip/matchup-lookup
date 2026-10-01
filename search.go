@@ -26,10 +26,10 @@ type Filters struct {
 }
 
 type Result struct {
-	Date                                                                                     time.Time
-	PlayerID, Champion, Rank, Opponent, OpponentID, Status, KDA, OpponentKDA, Patch, MatchID string
-	Win                                                                                      bool
-	CS                                                                                       int
+	Date                                                                                             time.Time
+	PlayerID, Champion, Rank, Opponent, OpponentID, Status, KDA, OpponentKDA, Patch, MatchID, Region string
+	Win                                                                                              bool
+	CS                                                                                               int
 }
 
 func rankThreshold(tier string) (int, error) {
@@ -69,7 +69,7 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	where := []string{"1=1"}
 	args := []any{}
 	if f.Region != "" {
-		where = append(where, "p.region=?")
+		where = append(where, "m.platform=? COLLATE NOCASE")
 		args = append(args, strings.ToLower(f.Region))
 	}
 	if f.Opponent != "" {
@@ -128,7 +128,7 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	if err := s.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(g.win),0)`+base, args...).Scan(&matching, &wins); err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
-	query := `SELECT m.game_creation, g.player_game_name, g.player_tag_line, p.game_name, p.tag_line,
+	query := `SELECT m.game_creation, m.platform, g.player_game_name, g.player_tag_line, p.game_name, p.tag_line,
       g.player_rank_tier, g.player_rank_division, g.champion, g.opponent_champion, g.opponent_game_name,
       g.opponent_tag_line, g.matchup_status, g.win, g.kills, g.deaths, g.assists, g.cs,
 	  g.opponent_kills,g.opponent_deaths,g.opponent_assists,m.game_version, m.match_id` + base + ` ORDER BY m.game_creation DESC, m.match_id DESC LIMIT ?`
@@ -140,10 +140,10 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	var out []Result
 	for rows.Next() {
 		var creation int64
-		var fg, ft, pg, pt, tier, division, champion, opp, og, ot, status, version, id string
+		var platform, fg, ft, pg, pt, tier, division, champion, opp, og, ot, status, version, id string
 		var win, kills, deaths, assists, cs int
 		var okills, odeaths, oassists sql.NullInt64
-		if err := rows.Scan(&creation, &fg, &ft, &pg, &pt, &tier, &division, &champion, &opp, &og, &ot, &status, &win, &kills, &deaths, &assists, &cs, &okills, &odeaths, &oassists, &version, &id); err != nil {
+		if err := rows.Scan(&creation, &platform, &fg, &ft, &pg, &pt, &tier, &division, &champion, &opp, &og, &ot, &status, &win, &kills, &deaths, &assists, &cs, &okills, &odeaths, &oassists, &version, &id); err != nil {
 			return nil, 0, 0, 0, 0, err
 		}
 		if fg == "" {
@@ -165,7 +165,7 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		if okills.Valid && odeaths.Valid && oassists.Valid {
 			oppKDA = fmt.Sprintf("%d/%d/%d", okills.Int64, odeaths.Int64, oassists.Int64)
 		}
-		out = append(out, Result{Date: time.UnixMilli(creation).Local(), PlayerID: fg + "#" + ft, Champion: champion,
+		out = append(out, Result{Date: time.UnixMilli(creation).Local(), Region: platformLabel(platform), PlayerID: fg + "#" + ft, Champion: champion,
 			Rank: strings.TrimSpace(tier + " " + division), Opponent: opp, OpponentID: oppID, OpponentKDA: oppKDA,
 			Status: status, Win: win == 1, KDA: fmt.Sprintf("%d/%d/%d", kills, deaths, assists),
 			CS: cs, Patch: patch, MatchID: id})
@@ -183,14 +183,14 @@ func PrintResults(results []Result, players, total, matching, wins int) {
 		players, total, matching, green.Render(fmt.Sprintf("Wins %d", wins)), red.Render(fmt.Sprintf("Losses %d", matching-wins)))
 	var buf bytes.Buffer
 	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DATE\tPLAYER RIOT ID\tCHAMPION\tRANK\tOPPONENT\tOPPONENT RIOT ID\tRESULT\tK/D/A\tOPP K/D/A\tCS\tPATCH\tMATCH ID\tPOSITION")
+	fmt.Fprintln(w, "DATE\tSERVER\tPLAYER RIOT ID\tCHAMPION\tRANK\tOPPONENT\tOPPONENT RIOT ID\tRESULT\tK/D/A\tOPP K/D/A\tCS\tPATCH\tMATCH ID\tPOSITION")
 	for _, r := range results {
 		result := "LOSS"
 		if r.Win {
 			result = "WIN"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			r.Date.Format("2006-01-02 15:04"), r.PlayerID, r.Champion, r.Rank, r.Opponent, r.OpponentID,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			r.Date.Format("2006-01-02 15:04"), r.Region, r.PlayerID, r.Champion, r.Rank, r.Opponent, r.OpponentID,
 			result, r.KDA, r.OpponentKDA, r.CS, r.Patch, r.MatchID, r.Status)
 	}
 	w.Flush()

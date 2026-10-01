@@ -58,6 +58,14 @@ func OpenStore(path string) (*Store, error) {
             key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS champions (
             id TEXT PRIMARY KEY, display_name TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS player_champions (
+            player_puuid TEXT NOT NULL REFERENCES players(puuid), champion TEXT NOT NULL,
+            PRIMARY KEY(player_puuid, champion))`,
+		`CREATE TABLE IF NOT EXISTS player_seeds (
+            game_name TEXT NOT NULL COLLATE NOCASE, tag_line TEXT NOT NULL COLLATE NOCASE,
+            region TEXT NOT NULL, champion TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+            source TEXT NOT NULL DEFAULT 'seed', resolved_puuid TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(region, game_name, tag_line, champion))`,
 		`CREATE INDEX IF NOT EXISTS idx_matches_creation ON matches(game_creation DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_games_champions ON tracked_games(champion, opponent_champion)`,
 	} {
@@ -123,6 +131,35 @@ func (s *Store) SetRiotKey(key string) error {
 	return err
 }
 
+func (s *Store) SaveFilters(filters Filters) error {
+	data, err := json.Marshal(filters)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(`INSERT INTO app_settings(key,value) VALUES('last_filters',?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(data))
+	return err
+}
+
+func (s *Store) LastFilters() (Filters, bool, error) {
+	var raw string
+	err := s.DB.QueryRow(`SELECT value FROM app_settings WHERE key='last_filters'`).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return Filters{Days: 7, Limit: 100, Result: "any", KDACompare: "any", Rank: "any"}, false, nil
+	}
+	if err != nil {
+		return Filters{}, false, err
+	}
+	var filters Filters
+	if err := json.Unmarshal([]byte(raw), &filters); err != nil {
+		return Filters{}, false, err
+	}
+	if filters.Limit < 1 {
+		filters.Limit = 100
+	}
+	return filters, true, nil
+}
+
 func backfillLegacy(s *Store) error {
 	players, err := s.ListPlayers()
 	if err != nil {
@@ -185,6 +222,77 @@ func (s *Store) PlayerBySeed(seed Seed) (Player, bool, error) {
 	return p, err == nil, err
 }
 
+func (s *Store) QueueSeed(seed Seed) error {
+	player, found, err := s.PlayerBySeed(seed)
+	if err != nil {
+		return err
+	}
+	puuid := ""
+	if found {
+		puuid = player.PUUID
+	}
+	_, err = s.DB.Exec(`INSERT INTO player_seeds(game_name,tag_line,region,champion,source,resolved_puuid)
+      VALUES(?,?,?,?,?,?) ON CONFLICT(region,game_name,tag_line,champion) DO UPDATE SET
+      source=excluded.source, resolved_puuid=CASE WHEN player_seeds.resolved_puuid='' THEN excluded.resolved_puuid ELSE player_seeds.resolved_puuid END`,
+		seed.GameName, seed.TagLine, seed.Region, seed.Champion, seed.Source, puuid)
+	if err != nil {
+		return err
+	}
+	if found {
+		return s.AddPlayerChampion(puuid, seed.Champion)
+	}
+	return nil
+}
+
+func (s *Store) PendingSeeds() ([]Seed, error) {
+	rows, err := s.DB.Query(`SELECT game_name,tag_line,region,source FROM player_seeds
+      WHERE resolved_puuid='' GROUP BY region,game_name,tag_line ORDER BY region,game_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var seeds []Seed
+	for rows.Next() {
+		var seed Seed
+		if err := rows.Scan(&seed.GameName, &seed.TagLine, &seed.Region, &seed.Source); err != nil {
+			return nil, err
+		}
+		seeds = append(seeds, seed)
+	}
+	return seeds, rows.Err()
+}
+
+func (s *Store) ResolveSeed(seed Seed, account Account) error {
+	if err := s.UpsertPlayer(seed, account); err != nil {
+		return err
+	}
+	rows, err := s.DB.Query(`SELECT champion FROM player_seeds WHERE region=? AND game_name=? AND tag_line=?`, seed.Region, seed.GameName, seed.TagLine)
+	if err != nil {
+		return err
+	}
+	var champions []string
+	for rows.Next() {
+		var champion string
+		if err := rows.Scan(&champion); err != nil {
+			rows.Close()
+			return err
+		}
+		champions = append(champions, champion)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, champion := range champions {
+		if err := s.AddPlayerChampion(account.PUUID, champion); err != nil {
+			return err
+		}
+	}
+	_, err = s.DB.Exec(`UPDATE player_seeds SET resolved_puuid=? WHERE region=? AND game_name=? AND tag_line=?`, account.PUUID, seed.Region, seed.GameName, seed.TagLine)
+	return err
+}
+
 func (s *Store) UpsertPlayer(seed Seed, a Account) error {
 	source := seed.Source
 	if source == "" {
@@ -227,6 +335,48 @@ func (s *Store) ListPlayers() ([]Player, error) {
 		players = append(players, p)
 	}
 	return players, rows.Err()
+}
+
+func (s *Store) ListRegions() ([]string, error) {
+	rows, err := s.DB.Query(`SELECT DISTINCT region FROM players ORDER BY region`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var regions []string
+	for rows.Next() {
+		var region string
+		if err := rows.Scan(&region); err != nil {
+			return nil, err
+		}
+		regions = append(regions, region)
+	}
+	return regions, rows.Err()
+}
+
+func (s *Store) AddPlayerChampion(puuid, champion string) error {
+	if champion == "" {
+		return nil
+	}
+	_, err := s.DB.Exec(`INSERT OR IGNORE INTO player_champions(player_puuid,champion) VALUES(?,?)`, puuid, champion)
+	return err
+}
+
+func (s *Store) PlayerChampions(puuid string) ([]string, error) {
+	rows, err := s.DB.Query(`SELECT champion FROM player_champions WHERE player_puuid=? ORDER BY champion COLLATE NOCASE`, puuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var champions []string
+	for rows.Next() {
+		var champion string
+		if err := rows.Scan(&champion); err != nil {
+			return nil, err
+		}
+		champions = append(champions, champion)
+	}
+	return champions, rows.Err()
 }
 
 func (s *Store) CachedMatch(id string) (Match, bool, error) {

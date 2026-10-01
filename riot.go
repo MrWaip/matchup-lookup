@@ -13,9 +13,9 @@ import (
 )
 
 type RiotClient struct {
-	key  string
-	http *http.Client
-	last time.Time
+	key   string
+	http  *http.Client
+	limit rateLimiter
 }
 
 func NewRiotClient(key string) *RiotClient {
@@ -25,13 +25,9 @@ func NewRiotClient(key string) *RiotClient {
 func (c *RiotClient) get(ctx context.Context, host, path string, dst any) error {
 	u := "https://" + host + ".api.riotgames.com" + path
 	for attempt := 0; attempt < 6; attempt++ {
-		// A conservative process-wide pace; the server's 429 response remains authoritative.
-		if wait := time.Until(c.last.Add(1200 * time.Millisecond)); wait > 0 {
-			if err := pause(ctx, wait); err != nil {
-				return err
-			}
+		if err := c.limit.wait(ctx); err != nil {
+			return err
 		}
-		c.last = time.Now()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
 			return err
@@ -64,8 +60,11 @@ func (c *RiotClient) get(ctx context.Context, host, path string, dst any) error 
 				}
 			}
 		}
-		fmt.Printf("[RATE LIMIT/RETRY] HTTP %d; waiting %s\n", resp.StatusCode, wait.Round(time.Second))
-		if err := pause(ctx, wait); err != nil {
+		fmt.Printf("\r\x1b[2K[RATE LIMIT/RETRY] HTTP %d; waiting %s\n", resp.StatusCode, wait.Round(time.Second))
+		if resp.StatusCode == 429 {
+			c.limit.block(wait)
+		}
+		if err := c.limit.pauseWithNotice(ctx, wait, fmt.Sprintf("HTTP %d Retry-After", resp.StatusCode)); err != nil {
 			return err
 		}
 	}
@@ -86,13 +85,20 @@ func pause(ctx context.Context, d time.Duration) error {
 // Account-V1 and Match-V5 are regional; League-V4 is platform routed.
 func (c *RiotClient) Resolve(ctx context.Context, s Seed) (Account, error) {
 	var a Account
-	err := c.get(ctx, "europe", "/riot/account/v1/accounts/by-riot-id/"+url.PathEscape(s.GameName)+"/"+url.PathEscape(s.TagLine), &a)
+	route, err := accountRoute(s.Region)
+	if err != nil {
+		return a, err
+	}
+	err = c.get(ctx, route, "/riot/account/v1/accounts/by-riot-id/"+url.PathEscape(s.GameName)+"/"+url.PathEscape(s.TagLine), &a)
 	return a, err
 }
 
-func (c *RiotClient) Rank(ctx context.Context, puuid string) (LeagueEntry, error) {
+func (c *RiotClient) Rank(ctx context.Context, platform, puuid string) (LeagueEntry, error) {
 	var entries []LeagueEntry
-	err := c.get(ctx, "euw1", "/lol/league/v4/entries/by-puuid/"+url.PathEscape(puuid), &entries)
+	if _, err := regionalRoute(platform); err != nil {
+		return LeagueEntry{}, err
+	}
+	err := c.get(ctx, platform, "/lol/league/v4/entries/by-puuid/"+url.PathEscape(puuid), &entries)
 	for _, entry := range entries {
 		if entry.QueueType == "RANKED_SOLO_5x5" {
 			return entry, err
@@ -101,14 +107,22 @@ func (c *RiotClient) Rank(ctx context.Context, puuid string) (LeagueEntry, error
 	return LeagueEntry{}, err
 }
 
-func (c *RiotClient) Recent(ctx context.Context, puuid string) ([]string, error) {
+func (c *RiotClient) Recent(ctx context.Context, platform, puuid string) ([]string, error) {
 	var ids []string
-	err := c.get(ctx, "europe", "/lol/match/v5/matches/by-puuid/"+url.PathEscape(puuid)+"/ids?queue=420&start=0&count=20", &ids)
+	route, err := regionalRoute(platform)
+	if err != nil {
+		return nil, err
+	}
+	err = c.get(ctx, route, "/lol/match/v5/matches/by-puuid/"+url.PathEscape(puuid)+"/ids?queue=420&start=0&count=20", &ids)
 	return ids, err
 }
 
-func (c *RiotClient) Match(ctx context.Context, id string) (Match, error) {
+func (c *RiotClient) Match(ctx context.Context, platform, id string) (Match, error) {
 	var m Match
-	err := c.get(ctx, "europe", "/lol/match/v5/matches/"+url.PathEscape(id), &m)
+	route, err := regionalRoute(platform)
+	if err != nil {
+		return m, err
+	}
+	err = c.get(ctx, route, "/lol/match/v5/matches/"+url.PathEscape(id), &m)
 	return m, err
 }

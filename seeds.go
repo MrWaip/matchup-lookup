@@ -15,14 +15,90 @@ import (
 	"time"
 )
 
-const DefaultPlayersSource = "https://api.github.com/repos/MrWaip/matchup-lookup/contents/players.json"
+const DefaultPlayersSource = "https://api.github.com/repos/MrWaip/matchup-lookup/contents/players/index.json"
 
 var seedHTTPClient = &http.Client{Timeout: 20 * time.Second}
 
 func LoadSeeds(source string) ([]Seed, error) {
+	return loadSeeds(source, 0)
+}
+
+func loadSeeds(source string, depth int) ([]Seed, error) {
+	if depth > 5 {
+		return nil, fmt.Errorf("seed manifest nesting too deep")
+	}
+	if !strings.Contains(source, "://") {
+		info, err := os.Stat(source)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			var all []Seed
+			err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if entry.IsDir() || entry.Name() == "index.json" {
+					return nil
+				}
+				ext := strings.ToLower(filepath.Ext(path))
+				if ext != ".json" && ext != ".csv" {
+					return nil
+				}
+				seeds, err := loadSeeds(path, depth+1)
+				if err != nil {
+					return err
+				}
+				all = append(all, seeds...)
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			if len(all) == 0 {
+				return nil, fmt.Errorf("no player JSON/CSV files in %s", source)
+			}
+			return all, nil
+		}
+	}
 	data, ext, err := readSeedSource(source)
 	if err != nil {
 		return nil, err
+	}
+	if strings.EqualFold(ext, ".json") && len(bytes.TrimSpace(data)) > 0 && bytes.TrimSpace(data)[0] == '{' {
+		var manifest struct {
+			Files []string `json:"files"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			return nil, err
+		}
+		if len(manifest.Files) == 0 || len(manifest.Files) > 200 {
+			return nil, fmt.Errorf("seed manifest needs 1-200 files")
+		}
+		var all []Seed
+		for _, file := range manifest.Files {
+			if file == "" || strings.Contains(file, "..") || strings.Contains(file, "://") || strings.HasPrefix(file, "/") {
+				return nil, fmt.Errorf("invalid seed manifest path %q", file)
+			}
+			child := filepath.Join(filepath.Dir(source), file)
+			if strings.Contains(source, "://") {
+				base, err := url.Parse(source)
+				if err != nil {
+					return nil, err
+				}
+				rel, err := url.Parse(file)
+				if err != nil {
+					return nil, err
+				}
+				child = base.ResolveReference(rel).String()
+			}
+			seeds, err := loadSeeds(child, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			all = append(all, seeds...)
+		}
+		return all, nil
 	}
 	var seeds []Seed
 	if strings.EqualFold(ext, ".csv") {
@@ -47,7 +123,7 @@ func LoadSeeds(source string) ([]Seed, error) {
 			return strings.TrimSpace(row[i])
 		}
 		for _, row := range rows[1:] {
-			seeds = append(seeds, Seed{GameName: get(row, "gamename"), TagLine: get(row, "tagline"), Region: get(row, "region"), Source: get(row, "source")})
+			seeds = append(seeds, Seed{GameName: get(row, "gamename"), TagLine: get(row, "tagline"), Region: get(row, "region"), Source: get(row, "source"), Champion: get(row, "champion")})
 		}
 	} else if err := json.Unmarshal(data, &seeds); err != nil {
 		return nil, err
@@ -56,11 +132,12 @@ func LoadSeeds(source string) ([]Seed, error) {
 		seeds[i].GameName = strings.TrimSpace(seeds[i].GameName)
 		seeds[i].TagLine = strings.TrimSpace(seeds[i].TagLine)
 		seeds[i].Region = strings.ToLower(strings.TrimSpace(seeds[i].Region))
+		seeds[i].Champion = strings.TrimSpace(seeds[i].Champion)
 		if seeds[i].GameName == "" || seeds[i].TagLine == "" {
 			return nil, fmt.Errorf("seed %d needs gameName and tagLine", i+1)
 		}
-		if seeds[i].Region != "euw1" {
-			return nil, fmt.Errorf("seed %d: MVP supports only euw1", i+1)
+		if _, err := regionalRoute(seeds[i].Region); err != nil {
+			return nil, fmt.Errorf("seed %d: %w", i+1, err)
 		}
 	}
 	return seeds, nil

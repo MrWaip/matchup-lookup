@@ -26,6 +26,7 @@ func RunInteractive(path string) error {
 		var action string
 		err := huh.NewSelect[string]().Title("What would you like to do?").Options(
 			huh.NewOption("Find matchups", "find"),
+			huh.NewOption("Repeat last search", "repeat"),
 			huh.NewOption("Update recent matches", "update"),
 			huh.NewOption("Import players from GitHub / URL / file", "import"),
 			huh.NewOption("Show tracked players", "players"),
@@ -50,6 +51,8 @@ func RunInteractive(path string) error {
 			err = promptRiotKey(store)
 		case "find":
 			err = interactiveFind(store)
+		case "repeat":
+			err = repeatLastSearch(store)
 		case "import":
 			err = interactiveImport(store)
 		case "update":
@@ -72,11 +75,23 @@ func PrintPlayers(store *Store) error {
 	}
 	fmt.Printf("Tracked players: %d\n", len(players))
 	for _, p := range players {
+		champions, err := store.PlayerChampions(p.PUUID)
+		if err != nil {
+			return err
+		}
 		rank := strings.TrimSpace(p.Tier + " " + p.Division)
 		if rank == "" {
 			rank = "unranked/unknown"
 		}
-		fmt.Printf("  %s#%s  [%s]  %s\n", p.GameName, p.TagLine, p.Region, rank)
+		fmt.Printf("  %s#%s  [%s]  %s  %s\n", p.GameName, p.TagLine, platformLabel(p.Region), rank, strings.Join(champions, ", "))
+	}
+	pending, err := store.PendingSeeds()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Pending Riot ID checks: %d\n", len(pending))
+	for _, seed := range pending {
+		fmt.Printf("  %s#%s  [%s]  pending  %s\n", seed.GameName, seed.TagLine, platformLabel(seed.Region), seed.Champion)
 	}
 	return nil
 }
@@ -117,13 +132,7 @@ func interactiveImport(store *Store) error {
 	if err != nil {
 		return err
 	}
-	key, err := interactiveKey(store)
-	if err != nil {
-		return err
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	return ImportSeeds(ctx, store, NewRiotClient(key), seeds)
+	return ImportSeeds(store, seeds)
 }
 
 func interactiveUpdate(store *Store) error {
@@ -137,7 +146,21 @@ func interactiveUpdate(store *Store) error {
 }
 
 func interactiveFind(store *Store) error {
-	f := Filters{Region: "euw1", Limit: 100}
+	f, _, err := store.LastFilters()
+	if err != nil {
+		return err
+	}
+	regions, err := store.ListRegions()
+	if err != nil {
+		return err
+	}
+	regionOptions := []huh.Option[string]{huh.NewOption("Any server", "")}
+	for _, platform := range regions {
+		regionOptions = append(regionOptions, huh.NewOption(platformLabel(platform)+" ("+platform+")", platform))
+	}
+	if err := huh.NewSelect[string]().Title("Server").Options(regionOptions...).Value(&f.Region).Run(); err != nil {
+		return err
+	}
 	catalog, err := EnsureChampions(context.Background(), store)
 	if err != nil {
 		fmt.Println("Champion catalog unavailable; enter champion names manually:", err)
@@ -148,17 +171,17 @@ func interactiveFind(store *Store) error {
 			return err
 		}
 	} else {
-		f.Champion, err = PickChampion("Your champion", catalog)
+		f.Champion, err = PickChampion("Your champion", catalog, f.Champion)
 		if err != nil {
 			return err
 		}
-		f.Opponent, err = PickChampion("Opponent champion", catalog)
+		f.Opponent, err = PickChampion("Opponent champion", catalog, f.Opponent)
 		if err != nil {
 			return err
 		}
 	}
-	var result, rank, kda string
-	var days int
+	result, rank, kda := f.Result, f.Rank, f.KDACompare
+	days := f.Days
 	err = huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().Title("Result").Options(
 			huh.NewOption("Any", "any"), huh.NewOption("Win", "win"), huh.NewOption("Loss", "loss"),
@@ -180,12 +203,15 @@ func interactiveFind(store *Store) error {
 	}
 	f.Champion, f.Opponent = strings.TrimSpace(f.Champion), strings.TrimSpace(f.Opponent)
 	f.Result, f.KDACompare, f.Rank, f.Days = result, kda, rank, days
-	var advanced bool
+	advanced := f.MinMinutes > 0 || f.Patch != "" || f.Player != ""
 	if err := huh.NewConfirm().Title("More filters?").Value(&advanced).Run(); err != nil {
 		return err
 	}
 	if advanced {
-		var minutes, patch, player string
+		minutes, patch, player := "", f.Patch, f.Player
+		if f.MinMinutes > 0 {
+			minutes = strconv.Itoa(f.MinMinutes)
+		}
 		err := huh.NewForm(huh.NewGroup(
 			huh.NewInput().Title("Minimum game duration (minutes; empty = any)").Value(&minutes),
 			huh.NewInput().Title("Patch (empty = any)").Placeholder("16.19").Value(&patch),
@@ -203,6 +229,25 @@ func interactiveFind(store *Store) error {
 		}
 	}
 	rows, players, total, matching, wins, err := Search(store, f)
+	if err != nil {
+		return err
+	}
+	if err := store.SaveFilters(f); err != nil {
+		return err
+	}
+	PrintResults(rows, players, total, matching, wins)
+	return nil
+}
+
+func repeatLastSearch(store *Store) error {
+	filters, found, err := store.LastFilters()
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no saved search yet; use Find matchups first")
+	}
+	rows, players, total, matching, wins, err := Search(store, filters)
 	if err != nil {
 		return err
 	}
