@@ -13,8 +13,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var sessionRiotKey string
-
 func RunInteractive(path string) error {
 	store, err := OpenStore(path)
 	if err != nil {
@@ -49,7 +47,7 @@ func RunInteractive(path string) error {
 		case "players":
 			err = PrintPlayers(store)
 		case "key":
-			err = promptRiotKey()
+			err = promptRiotKey(store)
 		case "find":
 			err = interactiveFind(store)
 		case "import":
@@ -83,30 +81,30 @@ func PrintPlayers(store *Store) error {
 	return nil
 }
 
-func interactiveKey() (string, error) {
-	if sessionRiotKey != "" {
-		return sessionRiotKey, nil
+func interactiveKey(store *Store) (string, error) {
+	key, err := configuredRiotKey(store)
+	if err != nil || key != "" {
+		return key, err
 	}
-	if key := strings.TrimSpace(os.Getenv("RIOT_API_KEY")); key != "" {
-		return key, nil
-	}
-	if err := promptRiotKey(); err != nil {
+	if err := promptRiotKey(store); err != nil {
 		return "", err
 	}
-	return sessionRiotKey, nil
+	return store.RiotKey()
 }
 
-func promptRiotKey() error {
+func promptRiotKey(store *Store) error {
 	var key string
-	err := huh.NewInput().Title("Riot API key (used only for this session)").EchoMode(huh.EchoModePassword).Value(&key).Run()
+	err := huh.NewInput().Title("Riot API key (saved locally in SQLite)").EchoMode(huh.EchoModePassword).Value(&key).Run()
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(key) == "" {
 		return fmt.Errorf("Riot API key is required")
 	}
-	sessionRiotKey = strings.TrimSpace(key)
-	fmt.Println("Riot API key ready for this session.")
+	if err := store.SetRiotKey(strings.TrimSpace(key)); err != nil {
+		return err
+	}
+	fmt.Println("Riot API key saved in the local database.")
 	return nil
 }
 
@@ -119,7 +117,7 @@ func interactiveImport(store *Store) error {
 	if err != nil {
 		return err
 	}
-	key, err := interactiveKey()
+	key, err := interactiveKey(store)
 	if err != nil {
 		return err
 	}
@@ -129,7 +127,7 @@ func interactiveImport(store *Store) error {
 }
 
 func interactiveUpdate(store *Store) error {
-	key, err := interactiveKey()
+	key, err := interactiveKey(store)
 	if err != nil {
 		return err
 	}
@@ -140,11 +138,28 @@ func interactiveUpdate(store *Store) error {
 
 func interactiveFind(store *Store) error {
 	f := Filters{Region: "euw1", Limit: 100}
-	var champion, opponent, result, rank, kda string
+	catalog, err := EnsureChampions(context.Background(), store)
+	if err != nil {
+		fmt.Println("Champion catalog unavailable; enter champion names manually:", err)
+		if err := huh.NewInput().Title("Your champion (empty = any)").Value(&f.Champion).Run(); err != nil {
+			return err
+		}
+		if err := huh.NewInput().Title("Opponent champion (empty = any)").Value(&f.Opponent).Run(); err != nil {
+			return err
+		}
+	} else {
+		f.Champion, err = PickChampion("Your champion", catalog)
+		if err != nil {
+			return err
+		}
+		f.Opponent, err = PickChampion("Opponent champion", catalog)
+		if err != nil {
+			return err
+		}
+	}
+	var result, rank, kda string
 	var days int
-	err := huh.NewForm(huh.NewGroup(
-		huh.NewInput().Title("Your champion (empty = any)").Placeholder("Fiora").Value(&champion),
-		huh.NewInput().Title("Opponent champion (empty = any)").Placeholder("Darius").Value(&opponent),
+	err = huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().Title("Result").Options(
 			huh.NewOption("Any", "any"), huh.NewOption("Win", "win"), huh.NewOption("Loss", "loss"),
 		).Value(&result),
@@ -163,7 +178,8 @@ func interactiveFind(store *Store) error {
 	if err != nil {
 		return err
 	}
-	f.Champion, f.Opponent, f.Result, f.KDACompare, f.Rank, f.Days = strings.TrimSpace(champion), strings.TrimSpace(opponent), result, kda, rank, days
+	f.Champion, f.Opponent = strings.TrimSpace(f.Champion), strings.TrimSpace(f.Opponent)
+	f.Result, f.KDACompare, f.Rank, f.Days = result, kda, rank, days
 	var advanced bool
 	if err := huh.NewConfirm().Title("More filters?").Value(&advanced).Run(); err != nil {
 		return err

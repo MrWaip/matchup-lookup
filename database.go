@@ -54,6 +54,10 @@ func OpenStore(path string) (*Store, error) {
             match_id TEXT NOT NULL REFERENCES matches(match_id),
             player_puuid TEXT NOT NULL REFERENCES players(puuid),
             PRIMARY KEY (match_id, player_puuid))`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS champions (
+            id TEXT PRIMARY KEY, display_name TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS idx_matches_creation ON matches(game_creation DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_games_champions ON tracked_games(champion, opponent_champion)`,
 	} {
@@ -94,7 +98,29 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := os.Chmod(path, 0600); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{DB: db}, nil
+}
+
+func (s *Store) RiotKey() (string, error) {
+	var key string
+	err := s.DB.QueryRow(`SELECT value FROM app_settings WHERE key='riot_api_key'`).Scan(&key)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return key, err
+}
+
+func (s *Store) SetRiotKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("Riot API key cannot be empty")
+	}
+	_, err := s.DB.Exec(`INSERT INTO app_settings(key,value) VALUES('riot_api_key',?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key)
+	return err
 }
 
 func backfillLegacy(s *Store) error {

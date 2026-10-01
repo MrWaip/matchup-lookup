@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 )
 
 func main() {
@@ -41,10 +40,6 @@ func run() error {
 		if err := flags.Parse(os.Args[2:]); err != nil {
 			return err
 		}
-		key := strings.TrimSpace(os.Getenv("RIOT_API_KEY"))
-		if key == "" {
-			return fmt.Errorf("set RIOT_API_KEY in your environment")
-		}
 		seeds, err := LoadSeeds(*source)
 		if err != nil {
 			return err
@@ -54,6 +49,13 @@ func run() error {
 			return err
 		}
 		defer store.Close()
+		key, err := configuredRiotKey(store)
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			return fmt.Errorf("set Riot API key in the interactive menu or RIOT_API_KEY")
+		}
 		fmt.Println("Database:", path)
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
@@ -62,15 +64,18 @@ func run() error {
 		if len(os.Args) != 2 {
 			return fmt.Errorf("update takes no arguments; use import -source to add players")
 		}
-		key := strings.TrimSpace(os.Getenv("RIOT_API_KEY"))
-		if key == "" {
-			return fmt.Errorf("set RIOT_API_KEY in your environment")
-		}
 		store, err := OpenStore(path)
 		if err != nil {
 			return err
 		}
 		defer store.Close()
+		key, err := configuredRiotKey(store)
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			return fmt.Errorf("set Riot API key in the interactive menu or RIOT_API_KEY")
+		}
 		fmt.Println("Database:", path)
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
