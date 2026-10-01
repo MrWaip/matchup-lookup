@@ -13,6 +13,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+var sessionRiotKey string
+
 func RunInteractive(path string) error {
 	store, err := OpenStore(path)
 	if err != nil {
@@ -29,6 +31,7 @@ func RunInteractive(path string) error {
 			huh.NewOption("Update recent matches", "update"),
 			huh.NewOption("Import players from GitHub / URL / file", "import"),
 			huh.NewOption("Show tracked players", "players"),
+			huh.NewOption("Set / replace Riot API key", "key"),
 			huh.NewOption("Show database location", "path"),
 			huh.NewOption("Exit", "exit"),
 		).Value(&action).Run()
@@ -45,6 +48,8 @@ func RunInteractive(path string) error {
 			fmt.Println(path)
 		case "players":
 			err = PrintPlayers(store)
+		case "key":
+			err = promptRiotKey()
 		case "find":
 			err = interactiveFind(store)
 		case "import":
@@ -79,18 +84,30 @@ func PrintPlayers(store *Store) error {
 }
 
 func interactiveKey() (string, error) {
+	if sessionRiotKey != "" {
+		return sessionRiotKey, nil
+	}
 	if key := strings.TrimSpace(os.Getenv("RIOT_API_KEY")); key != "" {
 		return key, nil
 	}
+	if err := promptRiotKey(); err != nil {
+		return "", err
+	}
+	return sessionRiotKey, nil
+}
+
+func promptRiotKey() error {
 	var key string
 	err := huh.NewInput().Title("Riot API key (used only for this session)").EchoMode(huh.EchoModePassword).Value(&key).Run()
 	if err != nil {
-		return "", err
+		return err
 	}
 	if strings.TrimSpace(key) == "" {
-		return "", fmt.Errorf("Riot API key is required")
+		return fmt.Errorf("Riot API key is required")
 	}
-	return strings.TrimSpace(key), nil
+	sessionRiotKey = strings.TrimSpace(key)
+	fmt.Println("Riot API key ready for this session.")
+	return nil
 }
 
 func interactiveImport(store *Store) error {

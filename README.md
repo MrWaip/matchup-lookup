@@ -9,9 +9,10 @@
 ```powershell
 winget install --id GoLang.Go --exact
 winget install --id Casey.Just --exact
+winget install --id GitHub.cli --exact
 ```
 
-Откройте новое окно PowerShell в каталоге проекта и проверьте `go version` и `just --version`. Go-модули загрузятся при первом запуске. Пакеты: чистый Go SQLite-драйвер `modernc.org/sqlite` и терминальные формы Charm `huh`/`lipgloss`.
+Откройте новое окно PowerShell в каталоге проекта и проверьте `go version` и `just --version`. Для списка игроков из приватного репозитория выполните `gh auth login` и войдите через браузер. Go-модули загрузятся при первом запуске. Пакеты: чистый Go SQLite-драйвер `modernc.org/sqlite` и терминальные формы Charm `huh`/`lipgloss`.
 
 ## Быстрый старт
 
@@ -31,9 +32,9 @@ winget install --id Casey.Just --exact
    just
    ```
 
-   В меню сначала выберите **Import players**, затем **Update recent matches**, потом **Find matchups**. Для Riot API приложение спросит ключ с маскированным вводом, если `RIOT_API_KEY` не установлен. Ключ не сохраняется в базе. При необходимости можно задать его в текущем сеансе PowerShell: `$env:RIOT_API_KEY = "RGAPI-your-key"`. Истёкший development key просто замените. Riot OAuth-логина в этой версии нет. Для локального списка в меню укажите `players.json`.
+   В меню сначала выберите **Import players**, затем **Update recent matches**, потом **Find matchups**. Для Riot API приложение спросит ключ с маскированным вводом, если `RIOT_API_KEY` не установлен, и запомнит его только до выхода из программы. Ключ не сохраняется в базе или бинарнике. В меню есть **Set / replace Riot API key** для замены истёкшего ключа. При необходимости можно задать ключ в текущем сеансе PowerShell: `$env:RIOT_API_KEY = "RGAPI-your-key"`. Riot OAuth-логина в этой версии нет: [RSO требует одобренное production-приложение](https://developer.riotgames.com/docs/lol). Для локального списка в меню укажите `players.json`.
 
-3. Поиск в меню работает без ключа и без сетевых запросов. Введите своего чемпиона и соперника, выберите результат игры, сравнение KDA, ранг и срок. Дополнительные фильтры доступны на следующем шаге. Например, победа Fiora над Darius с KDA не хуже соперника:
+3. Поиск в меню работает без ключа и без сетевых запросов. Введите своего чемпиона и соперника, выберите результат игры, сравнение KDA, ранг и срок. По умолчанию результат и KDA не ограничены: критерий «удачного матча» задаёте сами. Дополнительные фильтры доступны на следующем шаге. Например, победа Fiora над Darius с KDA не хуже соперника:
 
    ```powershell
    just find -champion Fiora -opponent Darius -result win -kda ge -rank diamond -days 7
