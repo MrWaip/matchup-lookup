@@ -18,8 +18,14 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		usage()
-		return nil
+		path, err := defaultDBPath()
+		if err != nil {
+			return err
+		}
+		if custom := os.Getenv("MATCHUP_DB_PATH"); custom != "" {
+			path = custom
+		}
+		return RunInteractive(path)
 	}
 	path, err := defaultDBPath()
 	if err != nil {
@@ -75,25 +81,19 @@ func run() error {
 			return err
 		}
 		defer store.Close()
-		players, err := store.ListPlayers()
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Tracked players: %d\n", len(players))
-		for _, p := range players {
-			fmt.Printf("  %s#%s  [%s]  %s %s (%d LP)\n", p.GameName, p.TagLine, p.Region, p.Tier, p.Division, p.LP)
-		}
-		return nil
+		return PrintPlayers(store)
 	case "find":
 		flags := flag.NewFlagSet("find", flag.ContinueOnError)
 		var f Filters
+		flags.StringVar(&f.Champion, "champion", "", "tracked player's champion, e.g. Fiora")
 		flags.StringVar(&f.Opponent, "opponent", "", "opponent champion, e.g. Darius")
 		flags.StringVar(&f.Result, "result", "any", "any, win, loss")
+		flags.StringVar(&f.KDACompare, "kda", "any", "any, ge (>= opponent), gt (> opponent)")
 		flags.StringVar(&f.Rank, "rank", "any", "any, emerald, diamond, master, grandmaster, challenger")
 		flags.IntVar(&f.Days, "days", 7, "last N days; 0 means all stored")
 		flags.IntVar(&f.MinMinutes, "min-minutes", 0, "minimum game duration")
 		flags.StringVar(&f.Patch, "patch", "", "patch, e.g. 16.19")
-		flags.StringVar(&f.Player, "player", "", "Fiora game name or PUUID")
+		flags.StringVar(&f.Player, "player", "", "tracked player game name or PUUID")
 		flags.StringVar(&f.Region, "region", "euw1", "platform (euw1)")
 		flags.IntVar(&f.Limit, "limit", 100, "maximum rows shown")
 		if err := flags.Parse(os.Args[2:]); err != nil {
@@ -123,9 +123,11 @@ func run() error {
 }
 
 func usage() {
-	fmt.Println(`matchup-lookup: recent EUW Fiora Solo/Duo matchups
+	fmt.Println(`matchup-lookup: recent EUW Solo/Duo champion matchups
 
-Commands:
+Run without a command for the interactive menu.
+
+Commands for scripting:
   import [-source URL-or-path]     Import JSON/CSV players into SQLite
   players                         List stored player pool
   update                          Fetch recent matches for stored players
@@ -133,7 +135,7 @@ Commands:
   path                             Show database location
 
 Example:
-  matchup-lookup find -opponent Darius -result win -rank diamond -days 7
+  matchup-lookup find -champion Fiora -opponent Darius -result win -kda ge -rank diamond -days 7
 
 Use "matchup-lookup import -h" or "matchup-lookup find -h" for flags.`)
 }

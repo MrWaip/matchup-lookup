@@ -17,16 +17,24 @@ func position(p Participant) string {
 	if b != "" {
 		return b
 	}
-	if strings.EqualFold(p.Lane, "TOP") {
-		return "TOP_LANE_FALLBACK"
+	lane := strings.ToUpper(p.Lane)
+	if lane == "MID" {
+		lane = "MIDDLE"
+	}
+	switch lane {
+	case "TOP", "JUNGLE", "MIDDLE", "BOTTOM":
+		return lane + "_LANE_FALLBACK"
 	}
 	return "UNKNOWN"
 }
 
 func opponent(m Match, f Participant) (*Participant, string) {
-	fioraPosition := position(f)
-	if fioraPosition != "TOP" && fioraPosition != "TOP_LANE_FALLBACK" {
-		return nil, "fiora_not_confirmed_top"
+	playerPosition := position(f)
+	role := strings.TrimSuffix(playerPosition, "_LANE_FALLBACK")
+	switch role {
+	case "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY":
+	default:
+		return nil, "player_position_unknown"
 	}
 	var primary, fallback []Participant
 	for _, candidate := range m.Info.Participants {
@@ -34,14 +42,14 @@ func opponent(m Match, f Participant) (*Participant, string) {
 			continue
 		}
 		switch position(candidate) {
-		case "TOP":
+		case role:
 			primary = append(primary, candidate)
-		case "TOP_LANE_FALLBACK":
+		case role + "_LANE_FALLBACK":
 			fallback = append(fallback, candidate)
 		}
 	}
 	if len(primary) == 1 {
-		if fioraPosition == "TOP_LANE_FALLBACK" {
+		if strings.HasSuffix(playerPosition, "_LANE_FALLBACK") {
 			return &primary[0], "lane_fallback"
 		}
 		return &primary[0], "confirmed"
@@ -174,14 +182,8 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 				failures++
 				continue
 			}
-			if !strings.EqualFold(f.ChampionName, "Fiora") {
-				if err := store.MarkChecked(id, player.PUUID); err != nil {
-					return err
-				}
-				continue
-			}
 			o, status := opponent(m, *f)
-			if err := store.SaveFioraGame(m, player, *f, o, status); err != nil {
+			if err := store.SaveTrackedGame(m, player, *f, o, status); err != nil {
 				return err
 			}
 			if err := store.MarkChecked(id, player.PUUID); err != nil {
@@ -192,9 +194,9 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 				if f.Win {
 					result = "WIN"
 				}
-				fmt.Printf("[STORE] Fiora vs %s - %s (%s)\n", o.ChampionName, result, status)
+				fmt.Printf("[STORE] %s vs %s - %s (%s)\n", f.ChampionName, o.ChampionName, result, status)
 			} else {
-				fmt.Printf("[STORE] Fiora - opponent uncertain (%s)\n", status)
+				fmt.Printf("[STORE] %s - opponent uncertain (%s)\n", f.ChampionName, status)
 			}
 		}
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"fmt"
 	"strings"
 	"text/tabwriter"
@@ -11,8 +12,10 @@ import (
 )
 
 type Filters struct {
+	Champion   string
 	Opponent   string
 	Result     string
+	KDACompare string
 	Rank       string
 	Days       int
 	MinMinutes int
@@ -23,10 +26,10 @@ type Filters struct {
 }
 
 type Result struct {
-	Date                                                             time.Time
-	FioraID, Rank, Opponent, OpponentID, Status, KDA, Patch, MatchID string
-	Win                                                              bool
-	CS                                                               int
+	Date                                                                                     time.Time
+	PlayerID, Champion, Rank, Opponent, OpponentID, Status, KDA, OpponentKDA, Patch, MatchID string
+	Win                                                                                      bool
+	CS                                                                                       int
 }
 
 func rankThreshold(tier string) (int, error) {
@@ -60,7 +63,7 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM players`).Scan(&players); err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM fiora_games`).Scan(&total); err != nil {
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM tracked_games`).Scan(&total); err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
 	where := []string{"1=1"}
@@ -73,6 +76,22 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		where = append(where, "g.opponent_champion=? COLLATE NOCASE")
 		args = append(args, f.Opponent)
 	}
+	if f.Champion != "" {
+		where = append(where, "g.champion=? COLLATE NOCASE")
+		args = append(args, f.Champion)
+	}
+	// Compare exact KDA ratios without floating point rounding. Unknown opponent KDA never passes.
+	switch strings.ToLower(f.KDACompare) {
+	case "", "any":
+	case "ge", "gt":
+		op := ">="
+		if strings.EqualFold(f.KDACompare, "gt") {
+			op = ">"
+		}
+		where = append(where, "g.opponent_kills IS NOT NULL AND (g.kills+g.assists)*MAX(1,g.opponent_deaths) "+op+" (g.opponent_kills+g.opponent_assists)*MAX(1,g.deaths)")
+	default:
+		return nil, 0, 0, 0, 0, fmt.Errorf("KDA comparison must be any, ge, or gt")
+	}
 	switch strings.ToLower(f.Result) {
 	case "", "any":
 	case "win":
@@ -83,7 +102,7 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		return nil, 0, 0, 0, 0, fmt.Errorf("result must be any, win, or loss")
 	}
 	if threshold > 0 {
-		where = append(where, `CASE UPPER(g.fiora_rank_tier)
+		where = append(where, `CASE UPPER(g.player_rank_tier)
         WHEN 'EMERALD' THEN 1 WHEN 'DIAMOND' THEN 2 WHEN 'MASTER' THEN 3
         WHEN 'GRANDMASTER' THEN 4 WHEN 'CHALLENGER' THEN 5 ELSE 0 END >= ?`)
 		args = append(args, threshold)
@@ -101,18 +120,18 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		args = append(args, f.Patch+".%")
 	}
 	if f.Player != "" {
-		where = append(where, "(g.fiora_game_name=? COLLATE NOCASE OR p.game_name=? COLLATE NOCASE OR g.fiora_puuid=?)")
+		where = append(where, "(g.player_game_name=? COLLATE NOCASE OR p.game_name=? COLLATE NOCASE OR g.player_puuid=?)")
 		args = append(args, f.Player, f.Player, f.Player)
 	}
-	base := ` FROM fiora_games g JOIN matches m ON m.match_id=g.match_id JOIN players p ON p.puuid=g.fiora_puuid WHERE ` + strings.Join(where, " AND ")
+	base := ` FROM tracked_games g JOIN matches m ON m.match_id=g.match_id JOIN players p ON p.puuid=g.player_puuid WHERE ` + strings.Join(where, " AND ")
 	var matching, wins int
 	if err := s.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(g.win),0)`+base, args...).Scan(&matching, &wins); err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
-	query := `SELECT m.game_creation, g.fiora_game_name, g.fiora_tag_line, p.game_name, p.tag_line,
-      g.fiora_rank_tier, g.fiora_rank_division, g.opponent_champion, g.opponent_game_name,
+	query := `SELECT m.game_creation, g.player_game_name, g.player_tag_line, p.game_name, p.tag_line,
+      g.player_rank_tier, g.player_rank_division, g.champion, g.opponent_champion, g.opponent_game_name,
       g.opponent_tag_line, g.matchup_status, g.win, g.kills, g.deaths, g.assists, g.cs,
-      m.game_version, m.match_id` + base + ` ORDER BY m.game_creation DESC, m.match_id DESC LIMIT ?`
+	  g.opponent_kills,g.opponent_deaths,g.opponent_assists,m.game_version, m.match_id` + base + ` ORDER BY m.game_creation DESC, m.match_id DESC LIMIT ?`
 	rows, err := s.DB.Query(query, append(args, f.Limit)...)
 	if err != nil {
 		return nil, 0, 0, 0, 0, err
@@ -121,9 +140,10 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	var out []Result
 	for rows.Next() {
 		var creation int64
-		var fg, ft, pg, pt, tier, division, opp, og, ot, status, version, id string
+		var fg, ft, pg, pt, tier, division, champion, opp, og, ot, status, version, id string
 		var win, kills, deaths, assists, cs int
-		if err := rows.Scan(&creation, &fg, &ft, &pg, &pt, &tier, &division, &opp, &og, &ot, &status, &win, &kills, &deaths, &assists, &cs, &version, &id); err != nil {
+		var okills, odeaths, oassists sql.NullInt64
+		if err := rows.Scan(&creation, &fg, &ft, &pg, &pt, &tier, &division, &champion, &opp, &og, &ot, &status, &win, &kills, &deaths, &assists, &cs, &okills, &odeaths, &oassists, &version, &id); err != nil {
 			return nil, 0, 0, 0, 0, err
 		}
 		if fg == "" {
@@ -141,8 +161,12 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		if len(parts) >= 2 {
 			patch = parts[0] + "." + parts[1]
 		}
-		out = append(out, Result{Date: time.UnixMilli(creation).Local(), FioraID: fg + "#" + ft,
-			Rank: strings.TrimSpace(tier + " " + division), Opponent: opp, OpponentID: oppID,
+		oppKDA := "?"
+		if okills.Valid && odeaths.Valid && oassists.Valid {
+			oppKDA = fmt.Sprintf("%d/%d/%d", okills.Int64, odeaths.Int64, oassists.Int64)
+		}
+		out = append(out, Result{Date: time.UnixMilli(creation).Local(), PlayerID: fg + "#" + ft, Champion: champion,
+			Rank: strings.TrimSpace(tier + " " + division), Opponent: opp, OpponentID: oppID, OpponentKDA: oppKDA,
 			Status: status, Win: win == 1, KDA: fmt.Sprintf("%d/%d/%d", kills, deaths, assists),
 			CS: cs, Patch: patch, MatchID: id})
 	}
@@ -154,20 +178,20 @@ func PrintResults(results []Result, players, total, matching, wins int) {
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	red := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	fmt.Println(title.Render("◆ FIORA MATCHUP LOOKUP"))
+	fmt.Println(title.Render("◆ MATCHUP LOOKUP"))
 	fmt.Printf("Players %d  ·  Stored %d  ·  Matching %d  ·  %s  ·  %s\n\n",
 		players, total, matching, green.Render(fmt.Sprintf("Wins %d", wins)), red.Render(fmt.Sprintf("Losses %d", matching-wins)))
 	var buf bytes.Buffer
 	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DATE\tFIORA RIOT ID\tRANK\tOPPONENT\tOPPONENT RIOT ID\tRESULT\tK/D/A\tCS\tPATCH\tMATCH ID\tPOSITION")
+	fmt.Fprintln(w, "DATE\tPLAYER RIOT ID\tCHAMPION\tRANK\tOPPONENT\tOPPONENT RIOT ID\tRESULT\tK/D/A\tOPP K/D/A\tCS\tPATCH\tMATCH ID\tPOSITION")
 	for _, r := range results {
 		result := "LOSS"
 		if r.Win {
 			result = "WIN"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			r.Date.Format("2006-01-02 15:04"), r.FioraID, r.Rank, r.Opponent, r.OpponentID,
-			result, r.KDA, r.CS, r.Patch, r.MatchID, r.Status)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			r.Date.Format("2006-01-02 15:04"), r.PlayerID, r.Champion, r.Rank, r.Opponent, r.OpponentID,
+			result, r.KDA, r.OpponentKDA, r.CS, r.Patch, r.MatchID, r.Status)
 	}
 	w.Flush()
 	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
