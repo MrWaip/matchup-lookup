@@ -21,6 +21,12 @@ find *args:
 path:
     go run . path
 
+db-export *args:
+    go run . db-export {{args}}
+
+db-import *args:
+    go run . db-import {{args}}
+
 build:
     go build .
 

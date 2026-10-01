@@ -112,6 +112,46 @@ func run() error {
 	case "path":
 		fmt.Println(path)
 		return nil
+	case "db-export":
+		flags := flag.NewFlagSet("db-export", flag.ContinueOnError)
+		output := flags.String("output", "", "destination .db file")
+		if err := flags.Parse(os.Args[2:]); err != nil {
+			return err
+		}
+		if *output == "" {
+			return fmt.Errorf("db-export requires -output PATH")
+		}
+		if _, err := os.Stat(path); err != nil {
+			return err
+		}
+		store, err := OpenStore(path)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		if err := ExportDatabase(store, *output); err != nil {
+			return err
+		}
+		fmt.Println("Database exported to", *output)
+		return nil
+	case "db-import":
+		flags := flag.NewFlagSet("db-import", flag.ContinueOnError)
+		source := flags.String("source", "", "SQLite snapshot .db file")
+		if err := flags.Parse(os.Args[2:]); err != nil {
+			return err
+		}
+		if *source == "" {
+			return fmt.Errorf("db-import requires -source PATH")
+		}
+		backup, err := ImportDatabase(path, *source)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Database imported to", path)
+		if backup != "" {
+			fmt.Println("Previous database backed up to", backup)
+		}
+		return nil
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -132,6 +172,8 @@ Commands for scripting:
   update                          Fetch recent matches for stored players
   find [filters]                   Search stored games (no API key needed)
   path                             Show database location
+  db-export -output PATH           Export a portable SQLite snapshot
+  db-import -source PATH           Install a snapshot and back up existing data
 
 Example:
   matchup-lookup find -champion Fiora -opponent Darius -result win -kda ge -rank diamond -days 7

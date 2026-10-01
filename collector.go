@@ -89,7 +89,14 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 	if err != nil {
 		return err
 	}
-	failures, err := resolvePending(ctx, store, api, pending)
+	existing, err := store.ListPlayers()
+	if err != nil {
+		return err
+	}
+	progress := newUpdateProgress(len(pending), len(existing)+len(pending))
+	progress.render()
+	defer progress.close()
+	failures, err := resolvePending(ctx, store, api, pending, progress)
 	if err != nil {
 		return err
 	}
@@ -100,14 +107,15 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 	if len(players) == 0 {
 		return fmt.Errorf("player pool is empty; run import first")
 	}
-	for i, player := range players {
-		fmt.Printf("[PLAYER %d/%d] %s#%s\n", i+1, len(players), player.GameName, player.TagLine)
+	progress.playerTotal = len(players)
+	progress.render()
+	for _, player := range players {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		rank, err := api.Rank(ctx, player.Region, player.PUUID)
 		if err != nil {
-			fmt.Printf("[WARN] Rank: %v\n", err)
+			fmt.Printf("\r\x1b[2K[WARN] Rank %s#%s: %v\n", player.GameName, player.TagLine, err)
 			failures++
 		} else if err := store.UpdateRank(player.PUUID, rank); err != nil {
 			return err
@@ -118,11 +126,16 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 		}
 		ids, err := api.Recent(ctx, player.Region, player.PUUID)
 		if err != nil {
-			fmt.Printf("[ERROR] Match list: %v\n", err)
+			fmt.Printf("\r\x1b[2K[ERROR] Match list %s#%s: %v\n", player.GameName, player.TagLine, err)
 			failures++
+			progress.players++
+			progress.render()
 			continue
 		}
-		fmt.Printf("[MATCHES] %d recent Solo/Duo matches\n", len(ids))
+		progress.matchTotal += len(ids)
+		progress.currentTotal = len(ids)
+		progress.current = 0
+		progress.render()
 		jobs := make(chan string, len(ids))
 		for _, id := range ids {
 			jobs <- id
@@ -145,12 +158,11 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 			}()
 		}
 		go func() { wg.Wait(); close(outcomes) }()
-		showProgress("MATCHES", 0, len(ids))
-		completed := 0
 		var fatal error
 		for outcome := range outcomes {
-			completed++
-			showProgress("MATCHES", completed, len(ids))
+			progress.current++
+			progress.matches++
+			progress.render()
 			if outcome.err != nil && fatal == nil {
 				fatal = outcome.err
 			}
@@ -159,12 +171,15 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 			}
 		}
 		if ctx.Err() != nil {
-			fmt.Println()
 			return ctx.Err()
 		}
 		if fatal != nil {
 			return fatal
 		}
+		progress.players++
+		progress.current = 0
+		progress.currentTotal = 0
+		progress.render()
 	}
 	if failures > 0 {
 		return fmt.Errorf("collection finished with %d API/data errors; successful data was saved", failures)
@@ -172,7 +187,7 @@ func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
 	return nil
 }
 
-func resolvePending(ctx context.Context, store *Store, api RiotAPI, pending []Seed) (int, error) {
+func resolvePending(ctx context.Context, store *Store, api RiotAPI, pending []Seed, progress *updateProgress) (int, error) {
 	jobs := make(chan Seed, len(pending))
 	for _, seed := range pending {
 		jobs <- seed
@@ -204,13 +219,11 @@ func resolvePending(ctx context.Context, store *Store, api RiotAPI, pending []Se
 		}()
 	}
 	go func() { wg.Wait(); close(outcomes) }()
-	showProgress("RESOLVE", 0, len(pending))
 	failures := 0
-	completed := 0
 	var fatal error
 	for outcome := range outcomes {
-		completed++
-		showProgress("RESOLVE", completed, len(pending))
+		progress.resolved++
+		progress.render()
 		if outcome.err != nil && fatal == nil {
 			fatal = outcome.err
 		}
@@ -219,7 +232,6 @@ func resolvePending(ctx context.Context, store *Store, api RiotAPI, pending []Se
 		}
 	}
 	if ctx.Err() != nil {
-		fmt.Println()
 		return 0, ctx.Err()
 	}
 	if fatal != nil {

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -18,7 +20,11 @@ func RunInteractive(path string) error {
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer func() {
+		if store != nil {
+			_ = store.Close()
+		}
+	}()
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
 	fmt.Println(title.Render("◆ MATCHUP LOOKUP"))
 	fmt.Println("Database:", path)
@@ -29,6 +35,8 @@ func RunInteractive(path string) error {
 			huh.NewOption("Repeat last search", "repeat"),
 			huh.NewOption("Update recent matches", "update"),
 			huh.NewOption("Import players from GitHub / URL / file", "import"),
+			huh.NewOption("Export database for another computer", "db_export"),
+			huh.NewOption("Import database from another computer", "db_import"),
 			huh.NewOption("Show tracked players", "players"),
 			huh.NewOption("Set / replace Riot API key", "key"),
 			huh.NewOption("Show database location", "path"),
@@ -57,6 +65,39 @@ func RunInteractive(path string) error {
 			err = interactiveImport(store)
 		case "update":
 			err = interactiveUpdate(store)
+		case "db_export":
+			var output string
+			output = fmt.Sprintf("matchup-lookup-%s.db", time.Now().Format("20060102-150405"))
+			err = huh.NewInput().Title("Export snapshot path").Value(&output).Run()
+			if err == nil {
+				err = ExportDatabase(store, strings.TrimSpace(output))
+				if err == nil {
+					fmt.Println("Database exported to", output)
+				}
+			}
+		case "db_import":
+			var source string
+			err = huh.NewInput().Title("Snapshot .db path").Value(&source).Run()
+			if err == nil {
+				if closeErr := store.Close(); closeErr != nil {
+					err = closeErr
+				} else {
+					store = nil
+					var backup string
+					backup, err = ImportDatabase(path, strings.TrimSpace(source))
+					var openErr error
+					store, openErr = OpenStore(path)
+					if openErr != nil {
+						return openErr
+					}
+					if err == nil {
+						fmt.Println("Database imported from", filepath.Clean(source))
+						if backup != "" {
+							fmt.Println("Previous database backed up to", backup)
+						}
+					}
+				}
+			}
 		}
 		if errors.Is(err, huh.ErrUserAborted) {
 			continue
