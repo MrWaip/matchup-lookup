@@ -16,6 +16,7 @@ type RiotClient struct {
 	key   string
 	http  *http.Client
 	limit rateLimiter
+	quiet bool
 }
 
 func NewRiotClient(key string) *RiotClient {
@@ -60,7 +61,9 @@ func (c *RiotClient) get(ctx context.Context, host, path string, dst any) error 
 				}
 			}
 		}
-		fmt.Printf("\r\x1b[2K[RATE LIMIT/RETRY] HTTP %d; waiting %s\n", resp.StatusCode, wait.Round(time.Second))
+		if !c.quiet {
+			fmt.Printf("\r\x1b[2K[RATE LIMIT/RETRY] HTTP %d; waiting %s\n", resp.StatusCode, wait.Round(time.Second))
+		}
 		if resp.StatusCode == 429 {
 			c.limit.block(wait)
 		}

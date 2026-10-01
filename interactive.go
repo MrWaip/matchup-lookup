@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,26 +23,11 @@ func RunInteractive(path string) error {
 			_ = store.Close()
 		}
 	}()
+	background := newBackgroundUpdate(path)
+	defer background.stop()
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
-	fmt.Println(title.Render("◆ MATCHUP LOOKUP"))
-	fmt.Println("Database:", path)
 	for {
-		var action string
-		err := huh.NewSelect[string]().Title("What would you like to do?").Options(
-			huh.NewOption("Find matchups", "find"),
-			huh.NewOption("Repeat last search", "repeat"),
-			huh.NewOption("Update recent matches", "update"),
-			huh.NewOption("Import players from GitHub / URL / file", "import"),
-			huh.NewOption("Export database for another computer", "db_export"),
-			huh.NewOption("Import database from another computer", "db_import"),
-			huh.NewOption("Show tracked players", "players"),
-			huh.NewOption("Set / replace Riot API key", "key"),
-			huh.NewOption("Show database location", "path"),
-			huh.NewOption("Exit", "exit"),
-		).Value(&action).Run()
-		if errors.Is(err, huh.ErrUserAborted) {
-			return nil
-		}
+		action, err := pickMenuAction(background)
 		if err != nil {
 			return err
 		}
@@ -64,7 +47,21 @@ func RunInteractive(path string) error {
 		case "import":
 			err = interactiveImport(store)
 		case "update":
-			err = interactiveUpdate(store)
+			var key string
+			key, err = interactiveKey(store)
+			if err == nil {
+				err = background.start(NewRiotClient(key))
+				if err == nil {
+					fmt.Println("Update started in background. You can search while it runs.")
+				}
+			}
+		case "cancel_update":
+			if background.snapshot().running {
+				background.stop()
+				fmt.Println("Update cancelled.")
+			} else {
+				fmt.Println("No update is running.")
+			}
 		case "db_export":
 			var output string
 			output = fmt.Sprintf("matchup-lookup-%s.db", time.Now().Format("20060102-150405"))
@@ -76,6 +73,10 @@ func RunInteractive(path string) error {
 				}
 			}
 		case "db_import":
+			if background.snapshot().running {
+				err = fmt.Errorf("cancel or finish the background update before importing a database")
+				break
+			}
 			var source string
 			err = huh.NewInput().Title("Snapshot .db path").Value(&source).Run()
 			if err == nil {
@@ -105,7 +106,10 @@ func RunInteractive(path string) error {
 		if err != nil {
 			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Render("Error: " + err.Error()))
 		}
-		fmt.Println()
+		if action != "exit" {
+			fmt.Println(title.Render("Press Enter to return to menu"))
+			fmt.Scanln()
+		}
 	}
 }
 
@@ -174,16 +178,6 @@ func interactiveImport(store *Store) error {
 		return err
 	}
 	return ImportSeeds(store, seeds)
-}
-
-func interactiveUpdate(store *Store) error {
-	key, err := interactiveKey(store)
-	if err != nil {
-		return err
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	return UpdatePlayers(ctx, store, NewRiotClient(key))
 }
 
 func interactiveFind(store *Store) error {

@@ -13,6 +13,14 @@ type updateProgress struct {
 	matches, matchTotal                                   int
 	current, currentTotal                                 int
 	lastPlainPlayers, lastPlainResolves, lastPlainMatches int
+	onChange                                              func(updateSnapshot)
+}
+
+type updateSnapshot struct {
+	Resolved, ResolveTotal int
+	Players, PlayerTotal   int
+	Matches, MatchTotal    int
+	Percent                int
 }
 
 func newUpdateProgress(resolveTotal, playerTotal int) *updateProgress {
@@ -47,6 +55,10 @@ func (p *updateProgress) render() {
 	bar := strings.Repeat("█", filled) + strings.Repeat("·", width-filled)
 	line := fmt.Sprintf("[UPDATE] [%s] %3d%%  IDs %d/%d  players %d/%d  matches %d/%d",
 		bar, percent, p.resolved, p.resolveTotal, p.players, p.playerTotal, p.matches, p.matchTotal)
+	if p.onChange != nil {
+		p.onChange(updateSnapshot{p.resolved, p.resolveTotal, p.players, p.playerTotal, p.matches, p.matchTotal, percent})
+		return
+	}
 	info, err := os.Stdout.Stat()
 	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
 		if p.players != p.lastPlainPlayers || p.resolved/10 != p.lastPlainResolves/10 || p.matches/20 != p.lastPlainMatches/20 {
@@ -60,5 +72,13 @@ func (p *updateProgress) render() {
 
 func (p *updateProgress) close() {
 	p.render()
-	fmt.Println()
+	if p.onChange == nil {
+		fmt.Println()
+	}
+}
+
+func (p *updateProgress) logf(format string, args ...any) {
+	if p.onChange == nil {
+		fmt.Printf(format, args...)
+	}
 }

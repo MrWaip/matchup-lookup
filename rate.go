@@ -15,6 +15,7 @@ type rateLimiter struct {
 	requests     []time.Time
 	blockedUntil time.Time
 	reporting    bool
+	onWait       func(time.Time, string)
 }
 
 func (l *rateLimiter) wait(ctx context.Context) error {
@@ -67,6 +68,11 @@ func (l *rateLimiter) wait(ctx context.Context) error {
 
 func (l *rateLimiter) pauseWithNotice(ctx context.Context, delay time.Duration, reason string) error {
 	if delay < 2*time.Second {
+		return pause(ctx, delay)
+	}
+	if l.onWait != nil {
+		l.onWait(time.Now().Add(delay), reason)
+		defer l.onWait(time.Time{}, "")
 		return pause(ctx, delay)
 	}
 	l.mu.Lock()
