@@ -92,6 +92,15 @@ func TestCollectAndSearchOffline(t *testing.T) {
 	if rows[0].Region != "EUW" {
 		t.Fatalf("server label: %s", rows[0].Region)
 	}
+	if rows[0].Patch != "26.19" {
+		t.Fatalf("displayed patch: %s", rows[0].Patch)
+	}
+	for _, patch := range []string{"16.19", "26.19"} {
+		_, _, _, count, _, err := Search(store, Filters{Patch: patch, Champion: "Fiora", Limit: 10})
+		if err != nil || count != 1 {
+			t.Fatalf("patch %s: count=%d err=%v", patch, count, err)
+		}
+	}
 	rows, _, _, matching, _, err = Search(store, Filters{Region: "na1", Limit: 10})
 	if err != nil || matching != 0 || len(rows) != 0 {
 		t.Fatalf("wrong server returned games: %d %v", matching, err)

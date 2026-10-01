@@ -1,11 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -117,7 +116,7 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	}
 	if f.Patch != "" {
 		where = append(where, "m.game_version LIKE ?")
-		args = append(args, f.Patch+".%")
+		args = append(args, rawPatch(f.Patch)+".%")
 	}
 	if f.Player != "" {
 		where = append(where, "(g.player_game_name=? COLLATE NOCASE OR p.game_name=? COLLATE NOCASE OR g.player_puuid=?)")
@@ -156,11 +155,7 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		if og != "" {
 			oppID = og + "#" + ot
 		}
-		patch := version
-		parts := strings.Split(version, ".")
-		if len(parts) >= 2 {
-			patch = parts[0] + "." + parts[1]
-		}
+		patch := displayPatch(version)
 		oppKDA := "?"
 		if okills.Valid && odeaths.Valid && oassists.Valid {
 			oppKDA = fmt.Sprintf("%d/%d/%d", okills.Int64, odeaths.Int64, oassists.Int64)
@@ -173,6 +168,33 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	return out, players, total, matching, wins, rows.Err()
 }
 
+// Riot's 2026 API version is 16.x while its player-facing patch name is 26.x.
+// Keep the raw version in SQLite and accept either name in the patch filter.
+func rawPatch(patch string) string {
+	parts := strings.Split(patch, ".")
+	if len(parts) < 2 {
+		return patch
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil || major < 25 || major > 39 {
+		return patch
+	}
+	parts[0] = strconv.Itoa(major - 10)
+	return strings.Join(parts, ".")
+}
+
+func displayPatch(version string) string {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return version
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err == nil && major >= 15 && major <= 29 {
+		return fmt.Sprintf("%d.%s", major+10, parts[1])
+	}
+	return parts[0] + "." + parts[1]
+}
+
 func PrintResults(results []Result, players, total, matching, wins int) {
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
@@ -181,32 +203,29 @@ func PrintResults(results []Result, players, total, matching, wins int) {
 	fmt.Println(title.Render("◆ MATCHUP LOOKUP"))
 	fmt.Printf("Players %d  ·  Stored %d  ·  Matching %d  ·  %s  ·  %s\n\n",
 		players, total, matching, green.Render(fmt.Sprintf("Wins %d", wins)), red.Render(fmt.Sprintf("Losses %d", matching-wins)))
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DATE\tSERVER\tPLAYER RIOT ID\tCHAMPION\tRANK\tOPPONENT\tOPPONENT RIOT ID\tRESULT\tK/D/A\tOPP K/D/A\tCS\tPATCH\tMATCH ID\tPOSITION")
-	for _, r := range results {
-		result := "LOSS"
-		if r.Win {
-			result = "WIN"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			r.Date.Format("2006-01-02 15:04"), r.Region, r.PlayerID, r.Champion, r.Rank, r.Opponent, r.OpponentID,
-			result, r.KDA, r.OpponentKDA, r.CS, r.Patch, r.MatchID, r.Status)
-	}
-	w.Flush()
-	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
-	for i, line := range lines {
-		if i == 0 {
-			fmt.Println(muted.Render(line))
-			continue
-		}
-		if results[i-1].Win {
-			fmt.Println(green.Render(line))
-		} else {
-			fmt.Println(red.Render(line))
-		}
-	}
 	if len(results) == 0 {
 		fmt.Println(muted.Render("No games found. Try -days 0 or a broader rank filter."))
+		return
+	}
+	for i, r := range results {
+		resultStyle := red
+		status := "LOSS"
+		if r.Win {
+			resultStyle = green
+			status = "WIN"
+		}
+		fmt.Printf("%d. %s  %s vs %s  ·  %s  ·  %s  ·  patch %s\n",
+			i+1, resultStyle.Bold(true).Render(status), r.Champion, r.Opponent, r.Date.Format("02 Jan 15:04"), r.Region, r.Patch)
+		fmt.Printf("   Player Riot ID: %s\n", title.Render(r.PlayerID))
+		fmt.Printf("   Rank %s  ·  K/D/A %s  ·  CS %d\n", r.Rank, r.KDA, r.CS)
+		fmt.Printf("   Opponent Riot ID: %s  ·  K/D/A %s\n", r.OpponentID, r.OpponentKDA)
+		fmt.Printf("   Match ID: %s", r.MatchID)
+		if r.Status != "confirmed" {
+			fmt.Printf("  ·  position %s", r.Status)
+		}
+		fmt.Println()
+		if i+1 < len(results) {
+			fmt.Println()
+		}
 	}
 }
