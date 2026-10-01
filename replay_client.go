@@ -24,17 +24,37 @@ type leagueClient struct {
 }
 
 func leagueLockfilePath() (string, error) {
-	if path := os.Getenv("MATCHUP_LCU_LOCKFILE"); path != "" {
-		return path, nil
+	override := strings.TrimSpace(os.Getenv("MATCHUP_LCU_LOCKFILE"))
+	if override != "" {
+		return override, nil
 	}
+	var fallback string
 	switch runtime.GOOS {
 	case "windows":
-		return `C:\Riot Games\League of Legends\lockfile`, nil
+		fallback = `C:\Riot Games\League of Legends\lockfile`
 	case "darwin":
-		return "/Applications/League of Legends.app/Contents/LoL/lockfile", nil
+		fallback = "/Applications/League of Legends.app/Contents/LoL/lockfile"
 	default:
 		return "", fmt.Errorf("set MATCHUP_LCU_LOCKFILE to the running League Client lockfile")
 	}
+	executables, _ := runningLeagueClientPaths()
+	return resolveLeagueLockfile("", executables, fallback)
+}
+
+func resolveLeagueLockfile(override string, executables []string, fallback string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	for _, executable := range executables {
+		path := filepath.Join(filepath.Dir(executable), "lockfile")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path, nil
+		}
+	}
+	if info, err := os.Stat(fallback); err == nil && !info.IsDir() {
+		return fallback, nil
+	}
+	return "", fmt.Errorf("LeagueClient.exe lockfile not found (checked running client and %s); open the League of Legends client, or set MATCHUP_LCU_LOCKFILE", fallback)
 }
 
 func connectLeagueClient() (*leagueClient, error) {

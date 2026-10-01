@@ -9,8 +9,13 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	restoreConsole := initConsole()
+	err := run()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
+	}
+	restoreConsole()
+	if err != nil {
 		os.Exit(1)
 	}
 }
