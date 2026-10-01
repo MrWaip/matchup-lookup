@@ -271,7 +271,7 @@ func interactiveFind(store *Store) error {
 		return err
 	}
 	PrintResults(rows, players, total, matching, wins)
-	return nil
+	return promptOpenReplay(rows)
 }
 
 func repeatLastSearch(store *Store) error {
@@ -287,5 +287,33 @@ func repeatLastSearch(store *Store) error {
 		return err
 	}
 	PrintResults(rows, players, total, matching, wins)
+	return promptOpenReplay(rows)
+}
+
+func promptOpenReplay(rows []Result) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	options := []huh.Option[string]{huh.NewOption("Back to menu", "")}
+	for i, row := range rows {
+		label := fmt.Sprintf("%d. %s vs %s · %s · %s", i+1, row.Champion, row.Opponent, row.PlayerID, row.MatchID)
+		options = append(options, huh.NewOption(label, row.MatchID))
+	}
+	var matchID string
+	if err := huh.NewSelect[string]().Title("Open a replay in League Client").Options(options...).Height(12).Value(&matchID).Run(); err != nil {
+		return err
+	}
+	if matchID == "" {
+		return nil
+	}
+	client, err := connectLeagueClient()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Opening replay", matchID, "in League Client...")
+	if err := openReplay(context.Background(), client, matchID); err != nil {
+		return err
+	}
+	fmt.Println("Replay launch requested in League Client.")
 	return nil
 }

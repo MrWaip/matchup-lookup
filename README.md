@@ -47,6 +47,7 @@ just players
 just update
 just find -region euw1 -champion Fiora -opponent Darius -result win -kda ge -rank diamond -days 7
 just find -champion Garen -days 0
+just watch -match EUW1_123456789
 just path
 just check
 just build
@@ -54,7 +55,9 @@ just build
 
 `-rank diamond` означает Diamond+, `-days 0` — всю сохранённую историю. `-kda ge` требует KDA игрока не ниже KDA соперника по линии, `-kda gt` — строго выше; победа выбирается отдельно через `-result win`. Пустой `-region` показывает все серверы. Результаты сортируются от новых к старым. `just build` собирает приложение для текущей системы; Windows `.exe` собирается в GitHub Actions.
 
-Для поиска матчей, которые ещё можно посмотреть в клиенте, выбирайте текущий патч через `-patch` и короткий период через `-days`. Это не проверка доступности реплея: по [справке Riot](https://support.riotgames.com/en-us/league-of-legends/gameplay/replays-faq-pro-tips) повторы истекают при смене патча. Исторические матчи остаются в SQLite для поиска и анализа. Riot [добавил получение повторов через API](https://www.leagueoflegends.com/en-us/news/game-updates/patch-25-23-notes/), но эта версия приложения пока не скачивает их и не управляет локальным League Client API.
+Для поиска матчей, которые ещё можно посмотреть в клиенте, выбирайте текущий патч через `-patch` и короткий период через `-days`. По [справке Riot](https://support.riotgames.com/en-us/league-of-legends/gameplay/replays-faq-pro-tips) повторы истекают при смене патча. Исторические матчи остаются в SQLite для поиска и анализа.
+
+После интерактивного поиска можно выбрать результат в списке **Open a replay in League Client**. Программа обращается к уже запущенному League Client через его локальный API: просит клиент скачать `.rofl` в обычную папку реплеев и затем запустить просмотр. `.bat` файлы не создаются и не запускаются. Клиент должен быть открыт на том же сервере, что и матч; реплей должен ещё существовать и соответствовать текущему патчу. Из скрипта используйте `just watch -match EUW1_123456789`. Если League установлен не по стандартному пути, укажите путь к его `lockfile` через `MATCHUP_LCU_LOCKFILE`. Локальный League Client API [не поддерживается Riot официально](https://developer.riotgames.com/docs/lol), поэтому запуск может сломаться после обновления клиента. Живой клиент на Windows в CI недоступен; поведение проверяется автономным тестом с имитацией его API.
 
 Riot API сохраняет техническую версию игры вроде `16.19`; игрокам патч 2026 года известен как `26.19`. В выдаче показывается `26.19`, а `-patch` принимает оба варианта.
 

@@ -112,6 +112,22 @@ func run() error {
 	case "path":
 		fmt.Println(path)
 		return nil
+	case "watch":
+		flags := flag.NewFlagSet("watch", flag.ContinueOnError)
+		matchID := flags.String("match", "", "match ID, e.g. EUW1_123456789")
+		if err := flags.Parse(os.Args[2:]); err != nil {
+			return err
+		}
+		if *matchID == "" {
+			return fmt.Errorf("watch requires -match MATCH_ID")
+		}
+		client, err := connectLeagueClient()
+		if err != nil {
+			return err
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		return openReplay(ctx, client, *matchID)
 	case "db-export":
 		flags := flag.NewFlagSet("db-export", flag.ContinueOnError)
 		output := flags.String("output", "", "destination .db file")
@@ -171,6 +187,7 @@ Commands for scripting:
   players                         List stored player pool
   update                          Fetch recent matches for stored players
   find [filters]                   Search stored games (no API key needed)
+  watch -match MATCH_ID            Open a replay in the running League Client
   path                             Show database location
   db-export -output PATH           Export a portable SQLite snapshot
   db-import -source PATH           Install a snapshot and back up existing data

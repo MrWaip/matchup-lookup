@@ -18,6 +18,9 @@ update:
 find *args:
     go run . find {{args}}
 
+watch *args:
+    go run . watch {{args}}
+
 path:
     go run . path
 
