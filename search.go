@@ -122,16 +122,48 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		where = append(where, "(g.player_game_name=? COLLATE NOCASE OR p.game_name=? COLLATE NOCASE OR g.player_puuid=?)")
 		args = append(args, f.Player, f.Player, f.Player)
 	}
-	base := ` FROM tracked_games g JOIN matches m ON m.match_id=g.match_id JOIN players p ON p.puuid=g.player_puuid WHERE ` + strings.Join(where, " AND ")
+	// A tracked game is stored from the seed player's point of view. Project the
+	// cached lane opponent as a second, searchable point of view. Match-v5 has
+	// no opponent rank snapshot, so only a separately tracked opponent has rank.
+	const perspectives = `WITH search_games AS (
+      SELECT g.match_id, g.player_puuid, g.player_game_name, g.player_tag_line,
+        g.player_rank_tier, g.player_rank_division, g.champion,
+        g.opponent_puuid, g.opponent_game_name, g.opponent_tag_line,
+        g.opponent_champion, g.matchup_status, g.win, g.kills, g.deaths,
+        g.assists, g.cs, g.opponent_kills, g.opponent_deaths, g.opponent_assists
+      FROM tracked_games g
+      UNION ALL
+      SELECT g.match_id, g.opponent_puuid,
+        COALESCE(NULLIF(g.opponent_game_name,''),json_extract(participant.value,'$.riotIdGameName'),''),
+        COALESCE(NULLIF(g.opponent_tag_line,''),json_extract(participant.value,'$.riotIdTagline'),''),
+        COALESCE(rp.rank_tier,''), COALESCE(rp.rank_division,''),
+        g.opponent_champion, g.player_puuid, g.player_game_name,
+        g.player_tag_line, g.champion, g.matchup_status, 1-g.win,
+        COALESCE(g.opponent_kills,json_extract(participant.value,'$.kills')),
+        COALESCE(g.opponent_deaths,json_extract(participant.value,'$.deaths')),
+        COALESCE(g.opponent_assists,json_extract(participant.value,'$.assists')),
+        COALESCE(json_extract(participant.value,'$.totalMinionsKilled'),0)
+          + COALESCE(json_extract(participant.value,'$.neutralMinionsKilled'),0),
+        g.kills, g.deaths, g.assists
+      FROM tracked_games g
+      JOIN matches cached ON cached.match_id=g.match_id
+      JOIN json_each(cached.raw_json,'$.info.participants') participant
+        ON json_extract(participant.value,'$.puuid')=g.opponent_puuid
+      LEFT JOIN players rp ON rp.puuid=g.opponent_puuid
+      WHERE g.opponent_puuid<>'' AND g.opponent_champion<>''
+        AND NOT EXISTS (SELECT 1 FROM tracked_games own
+          WHERE own.match_id=g.match_id AND own.player_puuid=g.opponent_puuid)
+    )`
+	base := ` FROM search_games g JOIN matches m ON m.match_id=g.match_id LEFT JOIN players p ON p.puuid=g.player_puuid WHERE ` + strings.Join(where, " AND ")
 	var matching, wins int
-	if err := s.DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(g.win),0)`+base, args...).Scan(&matching, &wins); err != nil {
+	if err := s.DB.QueryRow(perspectives+` SELECT COUNT(*), COALESCE(SUM(g.win),0)`+base, args...).Scan(&matching, &wins); err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
-	query := `SELECT m.game_creation, m.platform, g.player_game_name, g.player_tag_line, p.game_name, p.tag_line,
+	query := `SELECT m.game_creation, m.platform, g.player_game_name, g.player_tag_line, COALESCE(p.game_name,''), COALESCE(p.tag_line,''),
       g.player_rank_tier, g.player_rank_division, g.champion, g.opponent_champion, g.opponent_game_name,
       g.opponent_tag_line, g.matchup_status, g.win, g.kills, g.deaths, g.assists, g.cs,
 	  g.opponent_kills,g.opponent_deaths,g.opponent_assists,m.game_version, m.match_id` + base + ` ORDER BY m.game_creation DESC, m.match_id DESC LIMIT ?`
-	rows, err := s.DB.Query(query, append(args, f.Limit)...)
+	rows, err := s.DB.Query(perspectives+query, append(args, f.Limit)...)
 	if err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
@@ -156,12 +188,16 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 			oppID = og + "#" + ot
 		}
 		patch := displayPatch(version)
+		rank := strings.TrimSpace(tier + " " + division)
+		if rank == "" {
+			rank = "unknown"
+		}
 		oppKDA := "?"
 		if okills.Valid && odeaths.Valid && oassists.Valid {
 			oppKDA = fmt.Sprintf("%d/%d/%d", okills.Int64, odeaths.Int64, oassists.Int64)
 		}
 		out = append(out, Result{Date: time.UnixMilli(creation).Local(), Region: platformLabel(platform), PlayerID: fg + "#" + ft, Champion: champion,
-			Rank: strings.TrimSpace(tier + " " + division), Opponent: opp, OpponentID: oppID, OpponentKDA: oppKDA,
+			Rank: rank, Opponent: opp, OpponentID: oppID, OpponentKDA: oppKDA,
 			Status: status, Win: win == 1, KDA: fmt.Sprintf("%d/%d/%d", kills, deaths, assists),
 			CS: cs, Patch: patch, MatchID: id})
 	}

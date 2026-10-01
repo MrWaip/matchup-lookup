@@ -250,7 +250,7 @@ func interactiveFind(store *Store) error {
 		err := huh.NewForm(huh.NewGroup(
 			huh.NewInput().Title("Minimum game duration (minutes; empty = any)").Value(&minutes),
 			huh.NewInput().Title("Patch (empty = any)").Placeholder("16.19").Value(&patch),
-			huh.NewInput().Title("Tracked player (empty = any)").Value(&player),
+			huh.NewInput().Title("Player name / PUUID (empty = any)").Value(&player),
 		)).Run()
 		if err != nil {
 			return err
