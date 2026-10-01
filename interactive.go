@@ -25,7 +25,6 @@ func RunInteractive(path string) error {
 	}()
 	background := newBackgroundUpdate(path)
 	defer background.stop()
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
 	for {
 		action, err := pickMenuAction(background)
 		if err != nil {
@@ -107,8 +106,9 @@ func RunInteractive(path string) error {
 			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Render("Error: " + err.Error()))
 		}
 		if action != "exit" {
-			fmt.Println(title.Render("Press Enter to return to menu"))
-			fmt.Scanln()
+			if err := waitForReturnToMenu(); err != nil {
+				return err
+			}
 		}
 	}
 }
