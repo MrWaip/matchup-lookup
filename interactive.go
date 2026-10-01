@@ -193,75 +193,91 @@ func interactiveFind(store *Store) error {
 	for _, platform := range regions {
 		regionOptions = append(regionOptions, huh.NewOption(platformLabel(platform)+" ("+platform+")", platform))
 	}
-	if err := huh.NewSelect[string]().Title("Server").Options(regionOptions...).Value(&f.Region).Run(); err != nil {
-		return err
-	}
 	catalog, err := EnsureChampions(context.Background(), store)
 	if err != nil {
 		fmt.Println("Champion catalog unavailable; enter champion names manually:", err)
-		if err := huh.NewInput().Title("Your champion (empty = any)").Value(&f.Champion).Run(); err != nil {
-			return err
-		}
-		if err := huh.NewInput().Title("Opponent champion (empty = any)").Value(&f.Opponent).Run(); err != nil {
-			return err
-		}
-	} else {
-		f.Champion, err = PickChampion("Your champion", catalog, f.Champion)
-		if err != nil {
-			return err
-		}
-		f.Opponent, err = PickChampion("Opponent champion", catalog, f.Opponent)
-		if err != nil {
-			return err
-		}
 	}
 	result, rank, kda := f.Result, f.Rank, f.KDACompare
 	days := f.Days
-	err = huh.NewForm(huh.NewGroup(
-		huh.NewSelect[string]().Title("Result").Options(
-			huh.NewOption("Any", "any"), huh.NewOption("Win", "win"), huh.NewOption("Loss", "loss"),
-		).Value(&result),
-		huh.NewSelect[string]().Title("KDA vs lane opponent").Options(
-			huh.NewOption("Any", "any"), huh.NewOption("At least opponent's KDA", "ge"), huh.NewOption("Better than opponent's KDA", "gt"),
-		).Value(&kda),
-		huh.NewSelect[string]().Title("Player rank").Options(
-			huh.NewOption("Any", "any"), huh.NewOption("Emerald+", "emerald"), huh.NewOption("Diamond+", "diamond"),
-			huh.NewOption("Master+", "master"), huh.NewOption("Grandmaster+", "grandmaster"), huh.NewOption("Challenger", "challenger"),
-		).Value(&rank),
-		huh.NewSelect[int]().Title("Date").Options(
-			huh.NewOption("Last 1 day", 1), huh.NewOption("Last 3 days", 3), huh.NewOption("Last 7 days", 7),
-			huh.NewOption("Last 14 days", 14), huh.NewOption("Last 30 days", 30), huh.NewOption("All stored", 0),
-		).Value(&days),
-	)).Run()
+	advanced := f.MinMinutes > 0 || f.Patch != "" || f.Player != ""
+	steps := []func() error{
+		func() error {
+			return huh.NewSelect[string]().Title("Server").Options(regionOptions...).Value(&f.Region).Run()
+		},
+		func() error {
+			if catalog == nil {
+				return huh.NewInput().Title("Your champion (empty = any)").Value(&f.Champion).Run()
+			}
+			chosen, err := PickChampion("Your champion", catalog, f.Champion)
+			if err == nil {
+				f.Champion = chosen
+			}
+			return err
+		},
+		func() error {
+			if catalog == nil {
+				return huh.NewInput().Title("Opponent champion (empty = any)").Value(&f.Opponent).Run()
+			}
+			chosen, err := PickChampion("Opponent champion", catalog, f.Opponent)
+			if err == nil {
+				f.Opponent = chosen
+			}
+			return err
+		},
+		func() error {
+			return huh.NewForm(huh.NewGroup(
+				huh.NewSelect[string]().Title("Result").Options(
+					huh.NewOption("Any", "any"), huh.NewOption("Win", "win"), huh.NewOption("Loss", "loss"),
+				).Value(&result),
+				huh.NewSelect[string]().Title("KDA vs lane opponent").Options(
+					huh.NewOption("Any", "any"), huh.NewOption("At least opponent's KDA", "ge"), huh.NewOption("Better than opponent's KDA", "gt"),
+				).Value(&kda),
+				huh.NewSelect[string]().Title("Player rank").Options(
+					huh.NewOption("Any", "any"), huh.NewOption("Emerald+", "emerald"), huh.NewOption("Diamond+", "diamond"),
+					huh.NewOption("Master+", "master"), huh.NewOption("Grandmaster+", "grandmaster"), huh.NewOption("Challenger", "challenger"),
+				).Value(&rank),
+				huh.NewSelect[int]().Title("Date").Options(
+					huh.NewOption("Last 1 day", 1), huh.NewOption("Last 3 days", 3), huh.NewOption("Last 7 days", 7),
+					huh.NewOption("Last 14 days", 14), huh.NewOption("Last 30 days", 30), huh.NewOption("All stored", 0),
+				).Value(&days),
+			)).Run()
+		},
+		func() error { return huh.NewConfirm().Title("More filters?").Value(&advanced).Run() },
+		func() error {
+			if !advanced {
+				return nil
+			}
+			minutes, patch, player := "", f.Patch, f.Player
+			if f.MinMinutes > 0 {
+				minutes = strconv.Itoa(f.MinMinutes)
+			}
+			err := huh.NewForm(huh.NewGroup(
+				huh.NewInput().Title("Minimum game duration (minutes; empty = any)").Value(&minutes),
+				huh.NewInput().Title("Patch (empty = any)").Placeholder("16.19").Value(&patch),
+				huh.NewInput().Title("Player name / PUUID (empty = any)").Value(&player),
+			)).Run()
+			if err != nil {
+				return err
+			}
+			f.Patch, f.Player = strings.TrimSpace(patch), strings.TrimSpace(player)
+			f.MinMinutes = 0
+			if strings.TrimSpace(minutes) != "" {
+				f.MinMinutes, err = strconv.Atoi(strings.TrimSpace(minutes))
+				if err != nil {
+					return fmt.Errorf("duration must be a number")
+				}
+			}
+			return nil
+		},
+	}
+	err = runWizardSteps(steps)
 	if err != nil {
 		return err
 	}
 	f.Champion, f.Opponent = strings.TrimSpace(f.Champion), strings.TrimSpace(f.Opponent)
 	f.Result, f.KDACompare, f.Rank, f.Days = result, kda, rank, days
-	advanced := f.MinMinutes > 0 || f.Patch != "" || f.Player != ""
-	if err := huh.NewConfirm().Title("More filters?").Value(&advanced).Run(); err != nil {
-		return err
-	}
-	if advanced {
-		minutes, patch, player := "", f.Patch, f.Player
-		if f.MinMinutes > 0 {
-			minutes = strconv.Itoa(f.MinMinutes)
-		}
-		err := huh.NewForm(huh.NewGroup(
-			huh.NewInput().Title("Minimum game duration (minutes; empty = any)").Value(&minutes),
-			huh.NewInput().Title("Patch (empty = any)").Placeholder("16.19").Value(&patch),
-			huh.NewInput().Title("Player name / PUUID (empty = any)").Value(&player),
-		)).Run()
-		if err != nil {
-			return err
-		}
-		f.Patch, f.Player = strings.TrimSpace(patch), strings.TrimSpace(player)
-		if strings.TrimSpace(minutes) != "" {
-			f.MinMinutes, err = strconv.Atoi(strings.TrimSpace(minutes))
-			if err != nil {
-				return fmt.Errorf("duration must be a number")
-			}
-		}
+	if !advanced {
+		f.MinMinutes, f.Patch, f.Player = 0, "", ""
 	}
 	rows, players, total, matching, wins, err := Search(store, f)
 	if err != nil {
