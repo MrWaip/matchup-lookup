@@ -67,13 +67,14 @@ func LoadSeeds(source string) ([]Seed, error) {
 }
 
 func readSeedSource(source string) ([]byte, string, error) {
+	// A Windows path such as C:\players.json has a colon; it is still a file path.
+	if !strings.Contains(source, "://") {
+		data, err := os.ReadFile(source)
+		return data, filepath.Ext(source), err
+	}
 	u, err := url.Parse(source)
 	if err != nil {
 		return nil, "", err
-	}
-	if u.Scheme == "" {
-		data, err := os.ReadFile(source)
-		return data, filepath.Ext(source), err
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
 		return nil, "", fmt.Errorf("seed URL must be HTTP(S)")
