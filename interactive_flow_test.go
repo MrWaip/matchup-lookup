@@ -1,9 +1,11 @@
 package main
 
 import (
-	"strconv"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestSearchReturnsDirectlyToMenu(t *testing.T) {
@@ -20,27 +22,52 @@ func TestSearchReturnsDirectlyToMenu(t *testing.T) {
 	}
 }
 
-func TestReplayPagesKeepEveryMatchReachableWithBothPlayersVisible(t *testing.T) {
-	rows := make([]Result, 10)
+func TestReplayBrowserArrowNavigationAndAdaptiveDetails(t *testing.T) {
+	rows := make([]Result, 40)
 	for i := range rows {
-		rows[i] = Result{Champion: "Fiora", PlayerID: "Blue#EUW", Opponent: "Darius", OpponentID: "Red#EUW"}
+		rows[i] = Result{Champion: "Fiora", PlayerID: "Blue#EUW", Opponent: "Darius", OpponentID: "Red#EUW", SecondaryRunes: "Bone Plating + Overgrowth"}
 	}
-	seen := make(map[string]bool)
-	for page := 0; page < 3; page++ {
-		options := replayPageOptions(rows, page)
-		for _, option := range options {
-			if _, err := strconv.Atoi(option.Value); err == nil {
-				seen[option.Value] = true
-				if !strings.Contains(option.Key, "Fiora Blue#EUW vs Darius Red#EUW") {
-					t.Fatalf("match label hides players: %q", option.Key)
-				}
-			}
-		}
-		if page < 2 && options[len(options)-2].Value != "next" {
-			t.Fatalf("page %d has no next option: %+v", page, options)
-		}
+	rows[1].SecondaryRunes = "Second Wind + Overgrowth"
+	m := replayBrowserModel{rows: rows, width: 110, height: 24}
+	if m.pageSize() <= 4 {
+		t.Fatalf("screen should fit more than four matches: %d", m.pageSize())
 	}
-	if len(seen) != len(rows) {
-		t.Fatalf("reachable matches: %d, want %d", len(seen), len(rows))
+	view := m.View()
+	if !strings.Contains(view, "Bone Plating") || !strings.Contains(view, "Blue#EUW") || !strings.Contains(view, "Red#EUW") {
+		t.Fatalf("selected match details missing: %q", view)
+	}
+	if lipgloss.Height(view) > m.height {
+		t.Fatalf("view exceeds terminal height: %d > %d", lipgloss.Height(view), m.height)
+	}
+	if lipgloss.Width(view) > m.width {
+		t.Fatalf("view exceeds terminal width: %d > %d", lipgloss.Width(view), m.width)
+	}
+	updated, _ := m.Update(tea.MouseMsg{X: 5, Y: 4, Action: tea.MouseActionMotion, Type: tea.MouseMotion})
+	m = updated.(replayBrowserModel)
+	if m.cursor != 1 || !strings.Contains(m.View(), "Second Wind") {
+		t.Fatalf("hover should update the selected details: cursor=%d", m.cursor)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(replayBrowserModel)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(replayBrowserModel)
+	if m.cursor != m.pageSize() {
+		t.Fatalf("right arrow should retain row position on next page: cursor=%d page size=%d", m.cursor, m.pageSize())
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = updated.(replayBrowserModel)
+	if m.cursor != 0 {
+		t.Fatalf("left arrow should return to prior page, got %d", m.cursor)
+	}
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = updated.(replayBrowserModel)
+	if lipgloss.Height(m.View()) > 20 {
+		t.Fatalf("narrow view exceeds terminal height: %d", lipgloss.Height(m.View()))
+	}
+	if lipgloss.Width(m.View()) > 80 {
+		t.Fatalf("narrow view exceeds terminal width: %d", lipgloss.Width(m.View()))
+	}
+	if !strings.Contains(m.View(), "Bone Plating") {
+		t.Fatal("narrow view hides selected match details")
 	}
 }

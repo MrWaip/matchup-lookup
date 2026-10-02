@@ -315,27 +315,16 @@ func promptOpenReplay(rows []Result) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	page := 0
+	cursor := 0
 	for {
-		var choice string
-		title := fmt.Sprintf("Choose match · page %d/%d", page+1, (len(rows)+replayPageSize-1)/replayPageSize)
-		if err := huh.NewSelect[string]().Title(title).Options(replayPageOptions(rows, page)...).Height(15).Value(&choice).Run(); err != nil {
-			return err
-		}
-		switch choice {
-		case "":
-			return nil
-		case "next":
-			page++
-			continue
-		case "previous":
-			page--
-			continue
-		}
-		index, err := strconv.Atoi(choice)
+		index, err := browseReplay(rows, cursor)
 		if err != nil {
 			return err
 		}
+		if index < 0 {
+			return nil
+		}
+		cursor = index
 		row := rows[index]
 		fmt.Println()
 		printResult(index+1, row)
@@ -357,26 +346,6 @@ func promptOpenReplay(rows []Result) error {
 		fmt.Println("Replay launch requested in League Client.")
 		return nil
 	}
-}
-
-const replayPageSize = 4
-
-func replayPageOptions(rows []Result, page int) []huh.Option[string] {
-	start := page * replayPageSize
-	end := min(start+replayPageSize, len(rows))
-	options := make([]huh.Option[string], 0, replayPageSize+3)
-	for i := start; i < end; i++ {
-		r := rows[i]
-		label := fmt.Sprintf("%d. %s %s vs %s %s", i+1, r.Champion, r.PlayerID, r.Opponent, r.OpponentID)
-		options = append(options, huh.NewOption(label, strconv.Itoa(i)))
-	}
-	if page > 0 {
-		options = append(options, huh.NewOption("← Previous matches", "previous"))
-	}
-	if end < len(rows) {
-		options = append(options, huh.NewOption("Next matches →", "next"))
-	}
-	return append(options, huh.NewOption("Back to menu", ""))
 }
 
 func printInteractiveSearchSummary(rows []Result, players, total, matching, wins int) {
