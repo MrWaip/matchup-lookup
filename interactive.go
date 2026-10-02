@@ -291,7 +291,7 @@ func interactiveFind(store *Store) (bool, error) {
 	if err := store.SaveFilters(f); err != nil {
 		return false, err
 	}
-	PrintResults(rows, players, total, matching, wins)
+	printInteractiveSearchSummary(rows, players, total, matching, wins)
 	return len(rows) > 0, promptOpenReplay(rows)
 }
 
@@ -307,7 +307,7 @@ func repeatLastSearch(store *Store) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	PrintResults(rows, players, total, matching, wins)
+	printInteractiveSearchSummary(rows, players, total, matching, wins)
 	return len(rows) > 0, promptOpenReplay(rows)
 }
 
@@ -315,26 +315,75 @@ func promptOpenReplay(rows []Result) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	options := []huh.Option[string]{huh.NewOption("Back to menu", "")}
-	for i, row := range rows {
-		label := fmt.Sprintf("%d. %s vs %s · %s · %s", i+1, row.Champion, row.Opponent, row.PlayerID, row.MatchID)
-		options = append(options, huh.NewOption(label, row.MatchID))
-	}
-	var matchID string
-	if err := huh.NewSelect[string]().Title("Open a replay in League Client").Options(options...).Height(12).Value(&matchID).Run(); err != nil {
-		return err
-	}
-	if matchID == "" {
+	page := 0
+	for {
+		var choice string
+		title := fmt.Sprintf("Choose match · page %d/%d", page+1, (len(rows)+replayPageSize-1)/replayPageSize)
+		if err := huh.NewSelect[string]().Title(title).Options(replayPageOptions(rows, page)...).Height(15).Value(&choice).Run(); err != nil {
+			return err
+		}
+		switch choice {
+		case "":
+			return nil
+		case "next":
+			page++
+			continue
+		case "previous":
+			page--
+			continue
+		}
+		index, err := strconv.Atoi(choice)
+		if err != nil {
+			return err
+		}
+		row := rows[index]
+		fmt.Println()
+		printResult(index+1, row)
+		var launch bool
+		if err := huh.NewConfirm().Title("Open this replay in League Client?").Value(&launch).Run(); err != nil {
+			return err
+		}
+		if !launch {
+			continue
+		}
+		client, err := connectLeagueClient()
+		if err != nil {
+			return err
+		}
+		fmt.Println("Opening replay", row.MatchID, "in League Client...")
+		if err := openReplay(context.Background(), client, row.MatchID); err != nil {
+			return err
+		}
+		fmt.Println("Replay launch requested in League Client.")
 		return nil
 	}
-	client, err := connectLeagueClient()
-	if err != nil {
-		return err
+}
+
+const replayPageSize = 4
+
+func replayPageOptions(rows []Result, page int) []huh.Option[string] {
+	start := page * replayPageSize
+	end := min(start+replayPageSize, len(rows))
+	options := make([]huh.Option[string], 0, replayPageSize+3)
+	for i := start; i < end; i++ {
+		r := rows[i]
+		label := fmt.Sprintf("%d. %s %s vs %s %s", i+1, r.Champion, r.PlayerID, r.Opponent, r.OpponentID)
+		options = append(options, huh.NewOption(label, strconv.Itoa(i)))
 	}
-	fmt.Println("Opening replay", matchID, "in League Client...")
-	if err := openReplay(context.Background(), client, matchID); err != nil {
-		return err
+	if page > 0 {
+		options = append(options, huh.NewOption("← Previous matches", "previous"))
 	}
-	fmt.Println("Replay launch requested in League Client.")
-	return nil
+	if end < len(rows) {
+		options = append(options, huh.NewOption("Next matches →", "next"))
+	}
+	return append(options, huh.NewOption("Back to menu", ""))
+}
+
+func printInteractiveSearchSummary(rows []Result, players, total, matching, wins int) {
+	if len(rows) == 0 {
+		PrintResults(rows, players, total, matching, wins)
+		return
+	}
+	fmt.Printf("Players %d · Stored %d · Matching %d · Wins %d · Losses %d\n", players, total, matching, wins, matching-wins)
+	fmt.Printf("Showing %d most recent matches. Choose one to see spells, runes, and replay options.\n\n", len(rows))
 }

@@ -27,6 +27,7 @@ type Filters struct {
 type Result struct {
 	Date                                                                                             time.Time
 	PlayerID, Champion, Rank, Opponent, OpponentID, Status, KDA, OpponentKDA, Patch, MatchID, Region string
+	Spells, Keystone, SecondaryRunes                                                                 string
 	Win                                                                                              bool
 	CS                                                                                               int
 }
@@ -154,15 +155,23 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
         AND NOT EXISTS (SELECT 1 FROM tracked_games own
           WHERE own.match_id=g.match_id AND own.player_puuid=g.opponent_puuid)
     )`
-	base := ` FROM search_games g JOIN matches m ON m.match_id=g.match_id LEFT JOIN players p ON p.puuid=g.player_puuid WHERE ` + strings.Join(where, " AND ")
+	joins := ` FROM search_games g JOIN matches m ON m.match_id=g.match_id
+      LEFT JOIN players p ON p.puuid=g.player_puuid`
+	conditions := ` WHERE ` + strings.Join(where, " AND ")
 	var matching, wins int
-	if err := s.DB.QueryRow(perspectives+` SELECT COUNT(*), COALESCE(SUM(g.win),0)`+base, args...).Scan(&matching, &wins); err != nil {
+	if err := s.DB.QueryRow(perspectives+` SELECT COUNT(*), COALESCE(SUM(g.win),0)`+joins+conditions, args...).Scan(&matching, &wins); err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
 	query := `SELECT m.game_creation, m.platform, g.player_game_name, g.player_tag_line, COALESCE(p.game_name,''), COALESCE(p.tag_line,''),
       g.player_rank_tier, g.player_rank_division, g.champion, g.opponent_champion, g.opponent_game_name,
       g.opponent_tag_line, g.matchup_status, g.win, g.kills, g.deaths, g.assists, g.cs,
-	  g.opponent_kills,g.opponent_deaths,g.opponent_assists,m.game_version, m.match_id` + base + ` ORDER BY m.game_creation DESC, m.match_id DESC LIMIT ?`
+	  g.opponent_kills,g.opponent_deaths,g.opponent_assists,m.game_version, m.match_id,
+      json_extract(detail.value,'$.summoner1Id'), json_extract(detail.value,'$.summoner2Id'),
+      json_extract(detail.value,'$.perks.styles[0].selections[0].perk'),
+      json_extract(detail.value,'$.perks.styles[1].selections[0].perk'),
+      json_extract(detail.value,'$.perks.styles[1].selections[1].perk')` + joins + `
+      LEFT JOIN json_each(m.raw_json,'$.info.participants') detail
+        ON json_extract(detail.value,'$.puuid')=g.player_puuid` + conditions + ` ORDER BY m.game_creation DESC, m.match_id DESC LIMIT ?`
 	rows, err := s.DB.Query(perspectives+query, append(args, f.Limit)...)
 	if err != nil {
 		return nil, 0, 0, 0, 0, err
@@ -174,7 +183,8 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		var platform, fg, ft, pg, pt, tier, division, champion, opp, og, ot, status, version, id string
 		var win, kills, deaths, assists, cs int
 		var okills, odeaths, oassists sql.NullInt64
-		if err := rows.Scan(&creation, &platform, &fg, &ft, &pg, &pt, &tier, &division, &champion, &opp, &og, &ot, &status, &win, &kills, &deaths, &assists, &cs, &okills, &odeaths, &oassists, &version, &id); err != nil {
+		var spell1, spell2, keystone, secondary1, secondary2 sql.NullInt64
+		if err := rows.Scan(&creation, &platform, &fg, &ft, &pg, &pt, &tier, &division, &champion, &opp, &og, &ot, &status, &win, &kills, &deaths, &assists, &cs, &okills, &odeaths, &oassists, &version, &id, &spell1, &spell2, &keystone, &secondary1, &secondary2); err != nil {
 			return nil, 0, 0, 0, 0, err
 		}
 		if fg == "" {
@@ -199,7 +209,8 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		out = append(out, Result{Date: time.UnixMilli(creation).Local(), Region: platformLabel(platform), PlayerID: fg + "#" + ft, Champion: champion,
 			Rank: rank, Opponent: opp, OpponentID: oppID, OpponentKDA: oppKDA,
 			Status: status, Win: win == 1, KDA: fmt.Sprintf("%d/%d/%d", kills, deaths, assists),
-			CS: cs, Patch: patch, MatchID: id})
+			CS: cs, Patch: patch, MatchID: id, Spells: loadoutPair(spellName, spell1, spell2),
+			Keystone: runeName(keystone), SecondaryRunes: loadoutPair(runeName, secondary1, secondary2)})
 	}
 	return out, players, total, matching, wins, rows.Err()
 }
@@ -244,24 +255,32 @@ func PrintResults(results []Result, players, total, matching, wins int) {
 		return
 	}
 	for i, r := range results {
-		resultStyle := red
-		status := "LOSS"
-		if r.Win {
-			resultStyle = green
-			status = "WIN"
-		}
-		fmt.Printf("%d. %s  %s vs %s  ·  %s  ·  %s  ·  patch %s\n",
-			i+1, resultStyle.Bold(true).Render(status), r.Champion, r.Opponent, r.Date.Format("02 Jan 15:04"), r.Region, r.Patch)
-		fmt.Printf("   Player Riot ID: %s\n", title.Render(r.PlayerID))
-		fmt.Printf("   Rank %s  ·  K/D/A %s  ·  CS %d\n", r.Rank, r.KDA, r.CS)
-		fmt.Printf("   Opponent Riot ID: %s  ·  K/D/A %s\n", r.OpponentID, r.OpponentKDA)
-		fmt.Printf("   Match ID: %s", r.MatchID)
-		if r.Status != "confirmed" {
-			fmt.Printf("  ·  position %s", r.Status)
-		}
-		fmt.Println()
+		printResult(i+1, r)
 		if i+1 < len(results) {
 			fmt.Println()
 		}
 	}
+}
+
+func printResult(number int, r Result) {
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	resultStyle := red
+	status := "LOSS"
+	if r.Win {
+		resultStyle = green
+		status = "WIN"
+	}
+	fmt.Printf("%d. %s  %s vs %s  ·  %s  ·  %s  ·  patch %s\n",
+		number, resultStyle.Bold(true).Render(status), r.Champion, r.Opponent, r.Date.Format("02 Jan 15:04"), r.Region, r.Patch)
+	fmt.Printf("   Player Riot ID: %s\n", title.Render(r.PlayerID))
+	fmt.Printf("   Rank %s  ·  K/D/A %s  ·  CS %d\n", r.Rank, r.KDA, r.CS)
+	fmt.Printf("   Opponent Riot ID: %s  ·  K/D/A %s\n", r.OpponentID, r.OpponentKDA)
+	fmt.Printf("   Spells: %s  ·  Keystone: %s  ·  Secondary: %s\n", r.Spells, r.Keystone, r.SecondaryRunes)
+	fmt.Printf("   Match ID: %s", r.MatchID)
+	if r.Status != "confirmed" {
+		fmt.Printf("  ·  position %s", r.Status)
+	}
+	fmt.Println()
 }

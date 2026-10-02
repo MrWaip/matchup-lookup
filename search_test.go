@@ -23,8 +23,10 @@ func TestSearchCanViewStoredMatchFromOpponentSide(t *testing.T) {
 	m.Info.GameDuration = 1800
 	m.Info.GameVersion = "16.19.1"
 	m.Info.QueueID = 420
-	fiora := Participant{PUUID: "fiora-puuid", RiotIDGameName: "FioraMain", RiotIDTagline: "EUW", ChampionName: "Fiora", TeamID: 100, TeamPosition: "TOP", Win: false, Kills: 0, Deaths: 5, Assists: 1, TotalMinionsKilled: 95}
-	darius := Participant{PUUID: "darius-puuid", RiotIDGameName: "DariusMain", RiotIDTagline: "EUW", ChampionName: "Darius", TeamID: 200, TeamPosition: "TOP", Win: true, Kills: 6, Deaths: 0, Assists: 3, TotalMinionsKilled: 174}
+	fiora := Participant{PUUID: "fiora-puuid", RiotIDGameName: "FioraMain", RiotIDTagline: "EUW", ChampionName: "Fiora", TeamID: 100, TeamPosition: "TOP", Win: false, Kills: 0, Deaths: 5, Assists: 1, TotalMinionsKilled: 95,
+		Summoner1ID: 4, Summoner2ID: 12, Perks: Perks{Styles: []PerkStyle{{Selections: []PerkSelection{{Perk: 8010}}}, {Selections: []PerkSelection{{Perk: 8473}, {Perk: 8451}}}}}}
+	darius := Participant{PUUID: "darius-puuid", RiotIDGameName: "DariusMain", RiotIDTagline: "EUW", ChampionName: "Darius", TeamID: 200, TeamPosition: "TOP", Win: true, Kills: 6, Deaths: 0, Assists: 3, TotalMinionsKilled: 174,
+		Summoner1ID: 6, Summoner2ID: 4, Perks: Perks{Styles: []PerkStyle{{Selections: []PerkSelection{{Perk: 8010}}}, {Selections: []PerkSelection{{Perk: 8473}, {Perk: 8444}}}}}}
 	m.Info.Participants = []Participant{fiora, darius}
 	if err := s.SaveMatch(m); err != nil {
 		t.Fatal(err)
@@ -36,11 +38,14 @@ func TestSearchCanViewStoredMatchFromOpponentSide(t *testing.T) {
 	if err != nil || matching != 1 || wins != 0 || len(forward) != 1 {
 		t.Fatalf("forward: rows=%+v matching=%d wins=%d err=%v", forward, matching, wins, err)
 	}
+	if r := forward[0]; r.Spells != "Flash + Teleport" || r.Keystone != "Conqueror" || r.SecondaryRunes != "Bone Plating + Overgrowth" {
+		t.Fatalf("forward loadout: %+v", r)
+	}
 	reverse, _, _, matching, wins, err := Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", Limit: 10})
 	if err != nil || matching != 1 || wins != 1 || len(reverse) != 1 {
 		t.Fatalf("reverse: rows=%+v matching=%d wins=%d err=%v", reverse, matching, wins, err)
 	}
-	if r := reverse[0]; r.PlayerID != "DariusMain#EUW" || r.OpponentID != "FioraMain#EUW" || r.KDA != "6/0/3" || r.OpponentKDA != "0/5/1" || r.CS != 174 || r.MatchID != m.Metadata.MatchID {
+	if r := reverse[0]; r.PlayerID != "DariusMain#EUW" || r.OpponentID != "FioraMain#EUW" || r.KDA != "6/0/3" || r.OpponentKDA != "0/5/1" || r.CS != 174 || r.MatchID != m.Metadata.MatchID || r.Spells != "Ghost + Flash" || r.Keystone != "Conqueror" || r.SecondaryRunes != "Bone Plating + Second Wind" {
 		t.Fatalf("reverse row: %+v", r)
 	}
 	_, _, _, matching, wins, err = Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", KDACompare: "gt", Limit: 10})

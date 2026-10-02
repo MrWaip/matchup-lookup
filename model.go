@@ -58,6 +58,21 @@ type Participant struct {
 	Item4                int    `json:"item4"`
 	Item5                int    `json:"item5"`
 	Item6                int    `json:"item6"`
+	Summoner1ID          int    `json:"summoner1Id"`
+	Summoner2ID          int    `json:"summoner2Id"`
+	Perks                Perks  `json:"perks"`
+}
+
+type Perks struct {
+	Styles []PerkStyle `json:"styles"`
+}
+
+type PerkStyle struct {
+	Selections []PerkSelection `json:"selections"`
+}
+
+type PerkSelection struct {
+	Perk int `json:"perk"`
 }
 
 type Player struct {
