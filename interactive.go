@@ -247,7 +247,11 @@ func interactiveFind(store *Store) (bool, error) {
 				).Value(&days),
 			)).Run()
 		},
-		func() error { return huh.NewConfirm().Title("More filters?").Value(&advanced).Run() },
+		func() error {
+			chosen, err := promptYesNo("More filters?", advanced)
+			advanced = chosen
+			return err
+		},
 		func() error {
 			if !advanced {
 				return nil
@@ -328,8 +332,8 @@ func promptOpenReplay(rows []Result) error {
 		row := rows[index]
 		fmt.Println()
 		printResult(index+1, row)
-		var launch bool
-		if err := huh.NewConfirm().Title("Open this replay in League Client?").Value(&launch).Run(); err != nil {
+		launch, err := promptYesNo("Open this replay in League Client?", false)
+		if err != nil {
 			return err
 		}
 		if !launch {

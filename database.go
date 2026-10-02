@@ -401,11 +401,48 @@ func (s *Store) SaveMatch(m Match) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(`INSERT OR IGNORE INTO matches
+	_, err = s.DB.Exec(`INSERT INTO matches
       (match_id, platform, game_version, game_creation, game_duration, queue_id, fetched_at, raw_json)
-      VALUES(?,?,?,?,?,?,?,?)`, m.Metadata.MatchID, m.Info.PlatformID, m.Info.GameVersion,
+      VALUES(?,?,?,?,?,?,?,?)
+      ON CONFLICT(match_id) DO UPDATE SET raw_json=excluded.raw_json, fetched_at=excluded.fetched_at`, m.Metadata.MatchID, m.Info.PlatformID, m.Info.GameVersion,
 		m.Info.GameCreation, m.Info.GameDuration, m.Info.QueueID, time.Now().Unix(), string(raw))
 	return err
+}
+
+func (s *Store) MatchNeedsLoadoutRefresh(id string) (bool, error) {
+	var missing int
+	err := s.DB.QueryRow(`SELECT (json_type(raw_json, '$.info.participants[0].summoner1Id') IS NULL
+      OR json_type(raw_json, '$.info.participants[0].perks') IS NULL)
+      FROM matches WHERE match_id=?`, id).Scan(&missing)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return missing != 0, err
+}
+
+type cachedMatchRef struct {
+	ID, Platform string
+}
+
+func (s *Store) MissingLoadoutMatches() ([]cachedMatchRef, error) {
+	rows, err := s.DB.Query(`SELECT m.match_id, m.platform FROM matches m
+      WHERE EXISTS (SELECT 1 FROM tracked_games g WHERE g.match_id=m.match_id)
+        AND (json_type(m.raw_json, '$.info.participants[0].summoner1Id') IS NULL
+          OR json_type(m.raw_json, '$.info.participants[0].perks') IS NULL)
+      ORDER BY m.game_creation DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var refs []cachedMatchRef
+	for rows.Next() {
+		var ref cachedMatchRef
+		if err := rows.Scan(&ref.ID, &ref.Platform); err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+	}
+	return refs, rows.Err()
 }
 
 func (s *Store) GameExists(matchID, puuid string) (bool, error) {

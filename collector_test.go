@@ -115,6 +115,87 @@ func TestCollectAndSearchOffline(t *testing.T) {
 	}
 }
 
+func TestCollectMatchRefreshesLegacyLoadoutOnce(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "matches.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	player := Player{PUUID: "fiora", GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}
+	if err := store.UpsertPlayer(Seed{GameName: player.GameName, TagLine: player.TagLine, Region: player.Region}, Account{PUUID: player.PUUID, GameName: player.GameName, TagLine: player.TagLine}); err != nil {
+		t.Fatal(err)
+	}
+	m := sampleMatch()
+	if err := store.SaveMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(`UPDATE matches SET raw_json=json_remove(raw_json,
+		'$.info.participants[0].summoner1Id', '$.info.participants[0].summoner2Id', '$.info.participants[0].perks')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveTrackedGame(m, player, m.Info.Participants[0], &m.Info.Participants[1], "confirmed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkChecked(m.Metadata.MatchID, player.PUUID); err != nil {
+		t.Fatal(err)
+	}
+	m.Info.Participants[0].Summoner1ID = 4
+	m.Info.Participants[0].Summoner2ID = 12
+	m.Info.Participants[0].Perks = Perks{Styles: []PerkStyle{{Selections: []PerkSelection{{Perk: 8010}}}, {Selections: []PerkSelection{{Perk: 8473}, {Perk: 8451}}}}}
+	api := &fakeRiot{match: m}
+	progress := newUpdateProgress(0, 1)
+	for range 2 {
+		if failed, err := collectMatch(context.Background(), store, api, player, m.Metadata.MatchID, progress); failed || err != nil {
+			t.Fatalf("refresh failed=%v err=%v", failed, err)
+		}
+	}
+	if api.matchCalls != 1 {
+		t.Fatalf("legacy match fetched %d times, want once", api.matchCalls)
+	}
+	rows, _, _, _, _, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
+	if err != nil || len(rows) != 1 || rows[0].Spells != "Flash + Teleport" || rows[0].SecondaryRunes != "Bone Plating + Overgrowth" {
+		t.Fatalf("refreshed loadout: rows=%+v err=%v", rows, err)
+	}
+}
+
+type noRecentRiot struct{ fakeRiot }
+
+func (*noRecentRiot) Recent(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+
+func TestUpdateBackfillsLegacyMatchesOutsideRecentList(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "matches.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	player := Player{PUUID: "fiora", GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}
+	if err := store.UpsertPlayer(Seed{GameName: player.GameName, TagLine: player.TagLine, Region: player.Region}, Account{PUUID: player.PUUID, GameName: player.GameName, TagLine: player.TagLine}); err != nil {
+		t.Fatal(err)
+	}
+	m := sampleMatch()
+	if err := store.SaveMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(`UPDATE matches SET raw_json=json_remove(raw_json,
+		'$.info.participants[0].summoner1Id', '$.info.participants[0].summoner2Id', '$.info.participants[0].perks')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveTrackedGame(m, player, m.Info.Participants[0], &m.Info.Participants[1], "confirmed"); err != nil {
+		t.Fatal(err)
+	}
+	m.Info.Participants[0].Summoner1ID = 4
+	m.Info.Participants[0].Summoner2ID = 12
+	api := &noRecentRiot{fakeRiot: fakeRiot{match: m}}
+	if err := UpdatePlayers(context.Background(), store, api); err != nil {
+		t.Fatal(err)
+	}
+	if api.matchCalls != 1 {
+		t.Fatalf("old match fetched %d times, want once", api.matchCalls)
+	}
+}
+
 type parallelRiot struct {
 	fakeRiot
 	inFlight    atomic.Int32

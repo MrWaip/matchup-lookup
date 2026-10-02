@@ -109,6 +109,9 @@ func (m menuModel) View() string {
 		p := state.progress
 		right.WriteString(fmt.Sprintf("%3d%%  players %d/%d\n", p.Percent, p.Players, p.PlayerTotal))
 		right.WriteString(fmt.Sprintf("IDs %d/%d · matches %d/%d\n", p.Resolved, p.ResolveTotal, p.Matches, p.MatchTotal))
+		if p.LoadoutTotal > 0 {
+			right.WriteString(fmt.Sprintf("Old loadouts %d/%d\n", p.Loadouts, p.LoadoutTotal))
+		}
 		if remaining := time.Until(state.waitUntil); remaining > 0 {
 			right.WriteString("\nRiot limit: " + formatWait(remaining) + "\n")
 			right.WriteString(muted.Render(state.waitReason))

@@ -112,7 +112,12 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, onProgress fu
 	if len(players) == 0 {
 		return fmt.Errorf("player pool is empty; run import first")
 	}
+	legacyMatches, err := store.MissingLoadoutMatches()
+	if err != nil {
+		return err
+	}
 	progress.playerTotal = len(players)
+	progress.loadoutTotal = len(legacyMatches)
 	progress.render()
 	for _, player := range players {
 		if ctx.Err() != nil {
@@ -184,6 +189,26 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, onProgress fu
 		progress.players++
 		progress.current = 0
 		progress.currentTotal = 0
+		progress.render()
+	}
+	for _, ref := range legacyMatches {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		needs, err := store.MatchNeedsLoadoutRefresh(ref.ID)
+		if err != nil {
+			return err
+		}
+		if needs {
+			match, err := api.Match(ctx, ref.Platform, ref.ID)
+			if err != nil {
+				progress.logf("\n[ERROR] Refresh loadout %s: %v\n", ref.ID, err)
+				failures++
+			} else if err := store.SaveMatch(match); err != nil {
+				return err
+			}
+		}
+		progress.loadouts++
 		progress.render()
 	}
 	if failures > 0 {
@@ -258,14 +283,18 @@ func collectMatch(ctx context.Context, store *Store, api RiotAPI, player Player,
 	if err != nil {
 		return false, err
 	}
-	if already {
+	needsLoadout, err := store.MatchNeedsLoadoutRefresh(id)
+	if err != nil {
+		return false, err
+	}
+	if already && !needsLoadout {
 		return false, nil
 	}
 	m, cached, err := store.CachedMatch(id)
 	if err != nil {
 		return false, err
 	}
-	if !cached {
+	if !cached || needsLoadout {
 		m, err = api.Match(ctx, player.Region, id)
 		if err != nil {
 			progress.logf("\n[ERROR] %s: %v\n", id, err)
@@ -274,6 +303,9 @@ func collectMatch(ctx context.Context, store *Store, api RiotAPI, player Player,
 		if err := store.SaveMatch(m); err != nil {
 			return false, err
 		}
+	}
+	if already {
+		return false, nil
 	}
 	if m.Info.QueueID != 420 {
 		return false, store.MarkChecked(id, player.PUUID)
