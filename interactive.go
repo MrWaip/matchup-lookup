@@ -30,6 +30,7 @@ func RunInteractive(path string) error {
 		if err != nil {
 			return err
 		}
+		selectionShown := false
 		switch action {
 		case "exit":
 			return nil
@@ -40,9 +41,9 @@ func RunInteractive(path string) error {
 		case "key":
 			err = promptRiotKey(store)
 		case "find":
-			err = interactiveFind(store)
+			selectionShown, err = interactiveFind(store)
 		case "repeat":
-			err = repeatLastSearch(store)
+			selectionShown, err = repeatLastSearch(store)
 		case "import":
 			err = interactiveImport(store)
 		case "update":
@@ -105,12 +106,16 @@ func RunInteractive(path string) error {
 		if err != nil {
 			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Render("Error: " + err.Error()))
 		}
-		if action != "exit" {
+		if requiresReturnPrompt(action, selectionShown, err) {
 			if err := waitForReturnToMenu(); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func requiresReturnPrompt(action string, selectionShown bool, err error) bool {
+	return !((action == "find" || action == "repeat") && selectionShown && err == nil)
 }
 
 func PrintPlayers(store *Store) error {
@@ -180,14 +185,14 @@ func interactiveImport(store *Store) error {
 	return ImportSeeds(store, seeds)
 }
 
-func interactiveFind(store *Store) error {
+func interactiveFind(store *Store) (bool, error) {
 	f, _, err := store.LastFilters()
 	if err != nil {
-		return err
+		return false, err
 	}
 	regions, err := store.ListRegions()
 	if err != nil {
-		return err
+		return false, err
 	}
 	regionOptions := []huh.Option[string]{huh.NewOption("Any server", "")}
 	for _, platform := range regions {
@@ -272,7 +277,7 @@ func interactiveFind(store *Store) error {
 	}
 	err = runWizardSteps(steps)
 	if err != nil {
-		return err
+		return false, err
 	}
 	f.Champion, f.Opponent = strings.TrimSpace(f.Champion), strings.TrimSpace(f.Opponent)
 	f.Result, f.KDACompare, f.Rank, f.Days = result, kda, rank, days
@@ -281,29 +286,29 @@ func interactiveFind(store *Store) error {
 	}
 	rows, players, total, matching, wins, err := Search(store, f)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := store.SaveFilters(f); err != nil {
-		return err
+		return false, err
 	}
 	PrintResults(rows, players, total, matching, wins)
-	return promptOpenReplay(rows)
+	return len(rows) > 0, promptOpenReplay(rows)
 }
 
-func repeatLastSearch(store *Store) error {
+func repeatLastSearch(store *Store) (bool, error) {
 	filters, found, err := store.LastFilters()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !found {
-		return fmt.Errorf("no saved search yet; use Find matchups first")
+		return false, fmt.Errorf("no saved search yet; use Find matchups first")
 	}
 	rows, players, total, matching, wins, err := Search(store, filters)
 	if err != nil {
-		return err
+		return false, err
 	}
 	PrintResults(rows, players, total, matching, wins)
-	return promptOpenReplay(rows)
+	return len(rows) > 0, promptOpenReplay(rows)
 }
 
 func promptOpenReplay(rows []Result) error {
