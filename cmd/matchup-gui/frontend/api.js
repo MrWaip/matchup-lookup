@@ -11,6 +11,7 @@
 
 /**
  * @typedef {object} Overview
+ * @property {string} version build date and commit, e.g. "2026-10-04 dbd759c"
  * @property {string} dbPath
  * @property {boolean} hasKey
  * @property {boolean} keyFromEnv

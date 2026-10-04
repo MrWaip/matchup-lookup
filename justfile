@@ -1,5 +1,10 @@
 set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 
+# wails build disables Go's VCS stamping, so the GUI gets its version here.
+commit := `git rev-parse --short=7 HEAD`
+commit_date := `git log -1 --format=%cs`
+version_flags := "-X matchup-lookup/internal/core.buildCommit=" + commit + " -X matchup-lookup/internal/core.buildDate=" + commit_date
+
 default:
     go run .
 
@@ -40,7 +45,7 @@ gui:
 
 [working-directory: 'cmd/matchup-gui']
 build-gui:
-    wails build -clean -skipbindings -trimpath
+    wails build -clean -skipbindings -trimpath -ldflags "{{version_flags}}"
 
 # Type-check the GUI's JavaScript (JSDoc) with TypeScript.
 check-js:

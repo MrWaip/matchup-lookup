@@ -11,6 +11,8 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: write # publish the nightly release from main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
@@ -34,3 +36,16 @@ jobs:
           path: |
             matchup-lookup.exe
             cmd/matchup-gui/build/bin/matchup-lookup-gui.exe
+      # A rolling release keeps a fixed download URL for the newest main build:
+      # https://github.com/MrWaip/matchup-lookup/releases/download/nightly/<file>
+      - name: Publish nightly release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f nightly
+          git push -f origin nightly
+          gh release view nightly >/dev/null 2>&1 || gh release create nightly --title "Latest build" --notes ""
+          gh release edit nightly --notes "Latest build of main: ${GITHUB_SHA::7}, $(date -u +%Y-%m-%d)."
+          gh release upload nightly --clobber matchup-lookup.exe cmd/matchup-gui/build/bin/matchup-lookup-gui.exe

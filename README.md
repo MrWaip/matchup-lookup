@@ -2,6 +2,10 @@
 
 Локальное приложение (окно и CLI) на Go для поиска недавних матчей отслеживаемых игроков League of Legends. Показывает Riot ID, соперника по линии, результат и ID матча. История сохраняется в SQLite; при поиске видео и `.rofl` не загружаются.
 
+**Скачать последнюю сборку для Windows:** [окно — matchup-lookup-gui.exe](https://github.com/MrWaip/matchup-lookup/releases/download/nightly/matchup-lookup-gui.exe) · [CLI — matchup-lookup.exe](https://github.com/MrWaip/matchup-lookup/releases/download/nightly/matchup-lookup.exe)
+
+Ссылки ведут на релиз `nightly`, который CI пересобирает при каждом push в `main`; репозиторий приватный, поэтому нужен вход в GitHub. Версия сборки (дата и коммит) видна в шапке окна, в меню CLI и в `matchup-lookup version`.
+
 ## Установка на Windows
 
 В PowerShell:
@@ -16,7 +20,7 @@ winget install --id GitHub.cli --exact
 
 ## Оконное приложение
 
-`matchup-lookup-gui.exe` делает то же, что меню CLI: фильтры слева, таблица матчей, детали выбранного матча с кнопкой **Watch replay**, прогресс обновления в шапке, настройки (Riot API key, импорт игроков, перенос базы) под ⚙. Стрелки ↑/↓ в таблице выбирают матч, Enter или двойной щелчок открывают повтор. Окно использует ту же базу, что и CLI. Готовый `.exe` собирает GitHub Actions (артефакт `matchup-lookup-windows`). Для работы нужен WebView2, он есть в Windows 10 и 11.
+`matchup-lookup-gui.exe` делает то же, что меню CLI: фильтры слева, таблица матчей, детали выбранного матча с кнопкой **Watch replay**, прогресс обновления в шапке, настройки (Riot API key, импорт игроков, перенос базы) под ⚙. Стрелки ↑/↓ в таблице выбирают матч, Enter или двойной щелчок открывают повтор. Окно использует ту же базу, что и CLI. Готовый `.exe` собирает GitHub Actions: ссылки на скачивание в начале README. Для работы нужен WebView2, он есть в Windows 10 и 11.
 
 Сборка локально:
 

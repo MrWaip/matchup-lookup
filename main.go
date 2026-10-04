@@ -107,6 +107,9 @@ func run() error {
 		}
 		tui.PrintResults(result)
 		return nil
+	case "version":
+		fmt.Println(core.Version())
+		return nil
 	case "path":
 		fmt.Println(path)
 		return nil
@@ -176,7 +179,7 @@ func run() error {
 }
 
 func usage() {
-	fmt.Println(`matchup-lookup: recent Solo/Duo champion matchups
+	fmt.Println("matchup-lookup " + core.Version() + `: recent Solo/Duo champion matchups
 
 Run without a command for the interactive menu.
 
@@ -187,6 +190,7 @@ Commands for scripting:
   find [filters]                   core.Search stored games (no API key needed)
   watch -match MATCH_ID            Open a replay in the running League Client
   path                             Show database location
+  version                          Show build date and commit
   db-export -output PATH           Export a portable SQLite snapshot
   db-import -source PATH           Install a snapshot and back up existing data
 

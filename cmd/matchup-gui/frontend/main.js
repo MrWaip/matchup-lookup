@@ -225,6 +225,7 @@ tableWrap.addEventListener("keydown", (event) => {
 async function refreshOverview() {
   const overview = await api.overview();
   currentOverview = overview;
+  $("#version", HTMLElement).textContent = overview.version;
   const current = regionSelect.value;
   regionSelect.replaceChildren(
     h("option", { value: "" }, "Any server"),

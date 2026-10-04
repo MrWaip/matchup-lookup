@@ -76,6 +76,7 @@ type Server struct {
 }
 
 type Overview struct {
+	Version       string   `json:"version"`
 	DBPath        string   `json:"dbPath"`
 	HasKey        bool     `json:"hasKey"`
 	KeyFromEnv    bool     `json:"keyFromEnv"`
@@ -89,7 +90,7 @@ func (a *App) Overview() (Overview, error) {
 	return withStore(a, func(s *core.Store) (Overview, error) {
 		_ = core.RefreshLivePatch(a.ctx, s) // offline: search uses the last known patch
 		a.loadIcons(s)
-		o := Overview{DBPath: a.path, PlayersSource: core.DefaultPlayersSource,
+		o := Overview{Version: core.Version(), DBPath: a.path, PlayersSource: core.DefaultPlayersSource,
 			KeyFromEnv: strings.TrimSpace(os.Getenv("RIOT_API_KEY")) != ""}
 		key, err := core.ConfiguredRiotKey(s)
 		if err != nil {
