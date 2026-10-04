@@ -1,119 +1,22 @@
 # Matchup Lookup
 
-Локальное приложение (окно и CLI) на Go для поиска недавних матчей отслеживаемых игроков League of Legends. Показывает Riot ID, соперника по линии, результат и ID матча. История сохраняется в SQLite; при поиске видео и `.rofl` не загружаются.
+**Find League of Legends lane matchups you can actually study.** Matchup Lookup searches recent ranked Solo/Duo games from a player list you choose. Filter by champion, lane opponent, server, result, KDA, and rank; inspect the player's spells and runes; then open a current-patch replay in the League Client.
 
-**Скачать последнюю сборку для Windows:** [окно — matchup-lookup-gui.exe](https://github.com/MrWaip/matchup-lookup/releases/download/nightly/matchup-lookup-gui.exe) · [CLI — matchup-lookup.exe](https://github.com/MrWaip/matchup-lookup/releases/download/nightly/matchup-lookup.exe)
+Use it to find a Fiora win against Darius, compare how strong players approach a difficult lane, or review a loss from the opponent's point of view. Results are sorted newest first, and the app remembers your filters.
 
-Ссылки ведут на релиз `nightly`, который CI пересобирает при каждом push в `main`; репозиторий приватный, поэтому нужен вход в GitHub. Версия сборки (дата и коммит) видна в шапке окна, в меню CLI и в `matchup-lookup version`.
+## Get the app
 
-## Установка на Windows
+Download [Matchup Lookup for Windows](https://github.com/MrWaip/matchup-lookup/releases/download/nightly/matchup-lookup-gui.exe) and open the `.exe`. Prefer a terminal? Download the [command-line version](https://github.com/MrWaip/matchup-lookup/releases/download/nightly/matchup-lookup.exe).
 
-В PowerShell:
+## Start finding games
 
-```powershell
-winget install --id GoLang.Go --exact
-winget install --id Casey.Just --exact
-winget install --id GitHub.cli --exact
-```
+1. Get a Riot API key from the [Riot Developer Portal](https://developer.riotgames.com/). Sign in with your Riot account, copy the key, and add it under **Settings → Riot API keys**.
+2. Open **Settings → Players** and import the included Fiora player list, or provide your own JSON/CSV file, folder, or URL.
+3. Click **Update matches** to fetch recent ranked Solo/Duo games for those players.
+4. Choose **Your champion** and **Opponent**, then narrow the results with the other filters. Select a game to see its details and click **Watch replay**.
 
-Откройте новое окно PowerShell в папке проекта. Проверьте `go version` и `just --version`. Для загрузки списков из приватного GitHub выполните `gh auth login` через браузер. Локальные файлы доступны без GitHub CLI. При двойном щелчке по `.exe` Windows выбирает системное приложение терминала. Для удобного окна установите Windows Terminal приложением терминала по умолчанию: **Windows Terminal → Settings → Startup → Default terminal application → Windows Terminal**. Программа сама включает UTF-8 и поддержку ANSI в консоли, чтобы цвета и Riot ID не превращались в коды вида `←[38;5;...`.
+The League Client must be open on the match's server to watch a replay. Riot replays are available only for the current patch; Matchup Lookup searches that patch by default.
 
-## Оконное приложение
+**Need a player list or a fresh key?** See the [setup and usage guide](DEVELOPMENT.md) for exact sources, file examples, and common fixes.
 
-`matchup-lookup-gui.exe` делает то же, что меню CLI: фильтры слева, таблица матчей, детали выбранного матча с кнопкой **Watch replay**, прогресс обновления в шапке, настройки (Riot API key, импорт игроков, перенос базы) под ⚙. Стрелки ↑/↓ в таблице выбирают матч, Enter или двойной щелчок открывают повтор. Окно использует ту же базу, что и CLI. Готовый `.exe` собирает GitHub Actions: ссылки на скачивание в начале README. Для работы нужен WebView2, он есть в Windows 10 и 11.
-
-Сборка локально:
-
-```powershell
-winget install --id OpenJS.NodeJS.LTS --exact
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
-just build-gui     # cmd/matchup-gui/build/bin/matchup-lookup-gui.exe
-just gui           # режим разработки с перезагрузкой фронтенда
-```
-
-Фронтенд — обычные HTML, CSS и JS-модули без сборщика в `cmd/matchup-gui/frontend`; Go-методы описаны в `internal/gui`. Типы задаются JSDoc, `just check-js` проверяет их TypeScript 7. Пакеты npm ставятся из публичного registry, он указан в `.npmrc`.
-
-## Быстрый старт
-
-
-```powershell
-just
-```
-
-В меню выберите **Import players**. По умолчанию программа читает `players/index.json` из приватного GitHub-репозитория. Для локальной копии в поле источника укажите `players` или в PowerShell выполните:
-
-```powershell
-just import -source players
-```
-
-**Import** сразу записывает Riot ID в SQLite без Riot API и без ключа. Он не скачивает матчи. В `players/fiora/euw/` находятся четыре файла по 50 игроков из присланного списка. Можно добавлять каталоги вроде `players/garen/euw/` или импортировать другой JSON/CSV файл либо HTTP(S) ссылку через `-source`. Формат записи:
-
-```json
-{"gameName":"YourPlayer","tagLine":"EUW","region":"euw1","champion":"Fiora"}
-```
-
-CSV заголовки: `gameName,tagLine,region,champion,source`; последние два поля необязательны. Один игрок хранится по PUUID и может иметь несколько меток чемпионов. Метка — принадлежность к исходному списку, а поиск фильтрует чемпиона, реально сыгранного в матче. Списки получены из присланной таблицы; Riot API проверит ID во время обновления, и устаревшие записи могут дать ошибку. Редактируйте файлы и повторяйте импорт для добавления игроков.
-
-Затем выберите **Update recent matches**. При первом запуске программа попросит Riot API key с маскированным вводом и сохранит его в локальной SQLite. Ключей может быть несколько, например личный и 24-часовой dev-ключ: пункт меню **Riot API keys** (в окне — ⚙) показывает их по порядку, добавляет и удаляет. Новый ключ сразу проверяется запросом к Riot; отвергнутый ключ не сохраняется, а без сети сохраняется без проверки. Ключи используются по очереди, а не вместе: правила Riot запрещают объединять ключи ради лимитов. Когда Riot отвечает 401/403 (ключ истёк или отозван), ключ помечается отвергнутым, и тот же запрос повторяется со следующим. Если рабочих ключей не осталось, обновление останавливается с сообщением «ключ истёк или неверен»; уже скачанное сохраняется, поиск продолжает работать. После добавления нового ключа запустите обновление снова. `RIOT_API_KEY` из окружения идёт первым: `$env:RIOT_API_KEY = "RGAPI-your-key"`. Ключи не входят в бинарник и хранятся в базе без шифрования; файл базы создаётся с доступом только владельцу. Riot OAuth здесь нет: [RSO требует одобрения Riot](https://developer.riotgames.com/docs/lol).
-
-Обновление проверяет Riot ID, получает PUUID, затем последние 20 рейтинговых Solo/Duo матчей каждого игрока. Детали каждого нового матча Riot Match-V5 отдаёт отдельным запросом. Четыре загрузчика работают параллельно, но общий ограничитель держится ниже лимита 20 запросов/сек и 100 запросов/2 мин: используется максимум 18 и 90 соответственно. На 200 игроков первое полное обновление может занять много времени. В интерактивном режиме сбор идёт в фоне: можно сразу искать матчи, а справа в меню видны анимированный индикатор, общий процент, счётчики и обратный отсчёт ожидания лимита. Пункт **Cancel update** останавливает сбор; выход из программы тоже его останавливает. Уже записанные данные остаются, повторный запуск не скачивает те же детали матча. Команда `just update` по-прежнему работает в переднем плане с одной общей полосой прогресса. HTTP 429 и временные 5xx повторяются с задержкой, `Retry-After` соблюдается.
-
-В **Find matchups** выберите сервер, своего чемпиона и соперника через fuzzy-поиск, затем результат, KDA и ранг. Поиск всегда идёт по текущему патчу: повторы старых патчей клиент уже не открывает. В фильтре сервера перечислены все серверы Riot, у серверов с отслеживаемыми игроками указано их число. Начните вводить имя, выберите подсказку стрелками и нажмите Enter. Например, `fioa` находит Fiora, `drius` — Darius. **Any champion** снимает соответствующий фильтр. `Esc` возвращает на предыдущий экран поиска, а на экране сервера — в главное меню. Последние фильтры сохраняются в SQLite и подставляются в форму; **Repeat last search** повторяет их без формы. Каталог чемпионов берётся из Riot Data Dragon и кэшируется в SQLite на семь дней.
-
-Поиск работает с обеих сторон сохранённого матча: если импортированный игрок проиграл на Fiora против Darius, запрос `Darius vs Fiora · Win` тоже найдёт этот матч без нового обращения к Riot API. Ранг Darius в таком случае может быть `unknown`: Match-V5 не содержит ранги всех участников. Фильтр **Player rank** относится к чемпиону слева и исключает строки с неизвестным рангом. Для обратного поиска сначала выбирайте **Any**; если Darius тоже есть в базе игроков, его ранг будет доступен.
-
-Для скриптов:
-
-```powershell
-just players
-just update
-just find -region euw1 -champion Fiora -opponent Darius -result win -kda ge -rank diamond
-just find -champion Garen
-just watch -match EUW1_123456789
-just path
-just check
-just build
-```
-
-`-rank diamond` означает Diamond+. `-kda ge` требует KDA игрока не ниже KDA соперника по линии, `-kda gt` — строго выше; победа выбирается отдельно через `-result win`. Пустой `-region` показывает все серверы. Результаты сортируются от новых к старым. `just build` собирает приложение для текущей системы; Windows `.exe` собирается в GitHub Actions.
-
-Текущий патч определяется автоматически: это более новый из live-патча [Data Dragon](https://developer.riotgames.com/docs/lol#data-dragon) (проверяется не чаще раза в час, без сети используется последний известный) и самого нового сохранённого матча. Если Riot уже выпустил патч, а обновления ещё не было, поиск пуст и предлагает обновить матчи. По [справке Riot](https://support.riotgames.com/en-us/league-of-legends/gameplay/replays-faq-pro-tips) повторы истекают при смене патча, поэтому каждое обновление удаляет матчи патчей старше самого нового сохранённого. Ориентир здесь — сохранённые матчи, а не Data Dragon: он может обновиться раньше серверов региона. ID удалённых матчей остаются в `match_checks`, и повторно они не скачиваются.
-
-После интерактивного поиска матчи открываются в экране просмотра, который подстраивает число строк под размер терминала. Стрелки ↑/↓ выбирают матч, ←/→ переключают страницы, Enter предлагает открыть повтор, Esc возвращает в меню. Наведение мыши на строку также меняет выбранный матч, если терминал поддерживает события мыши. Справа сразу видны Riot ID обоих игроков, результат, спеллы, ключевая и две второстепенные руны; в узком окне детали находятся под списком. Так можно быстро проверить, есть ли Bone Plating. Повтор открывается через уже запущенный League Client: программа просит клиент скачать `.rofl` в обычную папку реплеев и запустить просмотр. `.bat` файлы не создаются и не запускаются. Клиент должен быть открыт на том же сервере, что и матч; реплей должен ещё существовать и соответствовать текущему патчу. Из скрипта используйте `just watch -match EUW1_123456789`. На Windows путь к `lockfile` определяется по запущенному `LeagueClient.exe`, в том числе если игра установлена на `D:`. Открытого лаунчера Riot недостаточно: должен запуститься клиент League. Если автоматическое обнаружение не сработало, в PowerShell задайте `$env:MATCHUP_LCU_LOCKFILE = 'D:\Riot Games\League of Legends\lockfile'` перед запуском. Локальный League Client API [не поддерживается Riot официально](https://developer.riotgames.com/docs/lol), поэтому запуск может сломаться после обновления клиента. Живой клиент на Windows в CI недоступен; поведение проверяется автономным тестом с имитацией его API.
-
-Спеллы и руны берутся из сохранённого ответа Match-V5, без сетевого запроса во время поиска. Если матчи, записанные старой версией программы, показывают `?`, запустите **Update recent matches**: обновление повторно загрузит недостающие данные для всех сохранённых результатов. Первый такой проход может занять время из-за лимитов Riot API; ход загрузки показан как **Old loadouts**. Если Riot уже не отдаёт отдельный матч, для него останется `?`.
-
-Riot API сохраняет техническую версию игры вроде `16.19`; игрокам патч 2026 года известен как `26.19`, так он и показывается.
-
-## Перенос базы с Mac на Windows
-
-Закройте приложение на Mac и создайте переносимый снимок SQLite:
-
-```bash
-just db-export -output matchup-transfer.db
-```
-
-Передайте этот файл на Windows, закройте приложение там и в PowerShell из папки проекта выполните:
-
-```powershell
-just db-import -source .\matchup-transfer.db
-just
-```
-
-В интерактивном меню есть те же действия **Export database** и **Import database**. Импорт проверяет SQLite-файл и заменяет локальную базу. Если база Windows уже существовала, её копия сохраняется рядом с именем `.backup-...db`. Снимок включает историю матчей, списки игроков, фильтры и сохранённый Riot API key; обращайтесь с ним как с файлом, содержащим ключ. При необходимости замените просроченный ключ в меню.
-
-## Хранение и правила данных
-
-SQLite находится вне репозитория: `%LOCALAPPDATA%\matchup-lookup\matches.db` на Windows, `~/Library/Application Support/matchup-lookup/matches.db` на macOS, `$XDG_DATA_HOME/matchup-lookup/matches.db` или `~/.local/share/matchup-lookup/matches.db` на Linux. Путь можно изменить через `MATCHUP_DB_PATH`. Импортированные ID лежат в `player_seeds`; проверенные PUUID — в `players`; метки чемпионов — в `player_champions`. `matches` хранит параметры матча и полный ответ Riot в сжатом gzip виде (`raw_gz`), `match_participants` — статистику, предметы, заклинания и руны отслеживаемых игроков и их соперников, `tracked_games` — сторону отслеживаемого игрока: соперника, ранг и позицию, `match_checks` — обработанные пары игрок–матч. Остальных участников и любые поля Riot можно достать из `raw_gz`.
-
-Схема задаётся миграциями в `internal/store/migrations`, а запросы лежат в `internal/store/queries/*.sql`. По ним [sqlc](https://sqlc.dev) генерирует Go-код в `internal/store/*_gen.go`. После изменения SQL выполните `just generate` (нужен `sqlc`: `brew install sqlc` или бинарник со [страницы релизов](https://github.com/sqlc-dev/sqlc/releases)). Сгенерированный код хранится в репозитории, поэтому для сборки `sqlc` не нужен. При запуске программа сама применяет новые миграции через [goose](https://github.com/pressly/goose). Перед этим существующая база копируется в `matches.db.pre-migration-<дата>.db`; при неудачном обновлении её можно вернуть вручную. Снимки из `db-import` тоже мигрируют при следующем запуске.
-
-Account-V1 и Match-V5 используют региональный маршрут, League-V4 — платформенный. Например, для EUW используются `europe.api.riotgames.com` и `euw1.api.riotgames.com`. Поддерживаются EUW, EUNE, TR, RU, NA, BR, LAN, LAS, KR, JP и платформы SEA/OCE. Фильтр сервера читает платформу из матча.
-
-Соперник выбирается по одинаковой позиции на другой стороне (`teamPosition` или `individualPosition`). Если они отсутствуют, используется `lane` только при единственном кандидате и строка помечается `lane_fallback`. Неоднозначность помечается `ambiguous`; неизвестный соперник не проходит фильтр его чемпиона и KDA. Ранг — снимок текущего Solo/Duo ранга при обработке матча, а не исторический ранг на дату игры. Доступность повтора в клиенте Riot программа не проверяет.
-
-## Проверка без Riot API
-
-`just check` запускает `go vet` и автономные тесты: локальный импорт 200 ID, проверка накопления меток, маршрутизация, выбор соперника, KDA, кэш, параллельная загрузка и возобновление без повторной загрузки матчей. Riot key и сеть для тестов не нужны.
-
-Маршрутизация и лимиты сверены с [документацией Riot Developer Portal](https://developer.riotgames.com/docs/portal) и [справочником Riot API](https://developer.riotgames.com/apis).
+Matchup Lookup uses Riot Games data but is not endorsed by Riot Games.
