@@ -1,6 +1,6 @@
 # Matchup Lookup
 
-Локальный интерактивный Go CLI для поиска недавних матчей отслеживаемых игроков League of Legends. Показывает Riot ID, соперника по линии, результат и ID матча. История сохраняется в SQLite; при поиске видео и `.rofl` не загружаются.
+Локальное приложение (окно и CLI) на Go для поиска недавних матчей отслеживаемых игроков League of Legends. Показывает Riot ID, соперника по линии, результат и ID матча. История сохраняется в SQLite; при поиске видео и `.rofl` не загружаются.
 
 ## Установка на Windows
 
@@ -14,7 +14,23 @@ winget install --id GitHub.cli --exact
 
 Откройте новое окно PowerShell в папке проекта. Проверьте `go version` и `just --version`. Для загрузки списков из приватного GitHub выполните `gh auth login` через браузер. Локальные файлы доступны без GitHub CLI. При двойном щелчке по `.exe` Windows выбирает системное приложение терминала. Для удобного окна установите Windows Terminal приложением терминала по умолчанию: **Windows Terminal → Settings → Startup → Default terminal application → Windows Terminal**. Программа сама включает UTF-8 и поддержку ANSI в консоли, чтобы цвета и Riot ID не превращались в коды вида `←[38;5;...`.
 
+## Оконное приложение
+
+`matchup-lookup-gui.exe` делает то же, что меню CLI: фильтры слева, таблица матчей, детали выбранного матча с кнопкой **Watch replay**, прогресс обновления в шапке, настройки (Riot API key, импорт игроков, перенос базы) под ⚙. Стрелки ↑/↓ в таблице выбирают матч, Enter или двойной щелчок открывают повтор. Окно использует ту же базу, что и CLI. Готовый `.exe` собирает GitHub Actions (артефакт `matchup-lookup-windows`). Для работы нужен WebView2, он есть в Windows 10 и 11.
+
+Сборка локально:
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS --exact
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+just build-gui     # cmd/matchup-gui/build/bin/matchup-lookup-gui.exe
+just gui           # режим разработки с перезагрузкой фронтенда
+```
+
+Фронтенд — обычные HTML, CSS и JS-модули без сборщика в `cmd/matchup-gui/frontend`; Go-методы описаны в `internal/gui`. Типы задаются JSDoc, `just check-js` проверяет их TypeScript 7. Пакеты npm ставятся из публичного registry, он указан в `.npmrc`.
+
 ## Быстрый старт
+
 
 ```powershell
 just

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -109,32 +108,9 @@ func (m championPicker) View() string {
 }
 
 func (m *championPicker) filter() {
-	query := core.NormalizeChampion(m.input.Value())
-	type ranked struct {
-		core.Champion
-		score int
-	}
-	var choices []ranked
-	if query == "" {
-		choices = append(choices, ranked{Champion: core.Champion{Name: "Any champion"}, score: 10000})
-	}
-	for _, c := range m.all {
-		score := core.FuzzyScore(query, c.Name)
-		if other := core.FuzzyScore(query, c.ID); other > score {
-			score = other
-		}
-		if score >= 0 {
-			choices = append(choices, ranked{Champion: c, score: score})
-		}
-	}
-	sort.Slice(choices, func(i, j int) bool {
-		if choices[i].score != choices[j].score {
-			return choices[i].score > choices[j].score
-		}
-		return strings.ToLower(choices[i].Name) < strings.ToLower(choices[j].Name)
-	})
 	m.matches = m.matches[:0]
-	for _, c := range choices {
-		m.matches = append(m.matches, c.Champion)
+	if core.NormalizeChampion(m.input.Value()) == "" {
+		m.matches = append(m.matches, core.Champion{Name: "Any champion"})
 	}
+	m.matches = append(m.matches, core.RankChampions(m.all, m.input.Value())...)
 }

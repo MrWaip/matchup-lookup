@@ -1,6 +1,7 @@
 package core
 
 import (
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -49,4 +50,31 @@ func FuzzyScore(query, candidate string) int {
 		}
 	}
 	return -1
+}
+
+// RankChampions returns the champions whose name or ID fuzzily matches query,
+// best match first. An empty query returns all champions alphabetically.
+func RankChampions(all []Champion, query string) []Champion {
+	type ranked struct {
+		Champion
+		score int
+	}
+	var choices []ranked
+	for _, c := range all {
+		score := max(FuzzyScore(query, c.Name), FuzzyScore(query, c.ID))
+		if score >= 0 {
+			choices = append(choices, ranked{c, score})
+		}
+	}
+	sort.Slice(choices, func(i, j int) bool {
+		if choices[i].score != choices[j].score {
+			return choices[i].score > choices[j].score
+		}
+		return strings.ToLower(choices[i].Name) < strings.ToLower(choices[j].Name)
+	})
+	result := make([]Champion, len(choices))
+	for i, c := range choices {
+		result[i] = c.Champion
+	}
+	return result
 }

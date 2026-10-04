@@ -4,3 +4,4 @@
 .env
 matchup-lookup
 matchup-lookup.exe
+node_modules/

@@ -7,6 +7,14 @@ import (
 	"runtime"
 )
 
+// DBPath returns MATCHUP_DB_PATH if set, otherwise DefaultDBPath.
+func DBPath() (string, error) {
+	if custom := os.Getenv("MATCHUP_DB_PATH"); custom != "" {
+		return custom, nil
+	}
+	return DefaultDBPath()
+}
+
 func DefaultDBPath() (string, error) {
 	var root string
 	switch runtime.GOOS {

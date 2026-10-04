@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Matchup Lookup</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">◆</span> Matchup Lookup</div>
+    <div class="update" id="update" data-state="idle">
+      <div class="update-text">
+        <span id="update-label">No update running</span>
+        <span class="muted" id="update-detail"></span>
+      </div>
+      <div class="progress" aria-hidden="true"><div class="progress-fill" id="update-bar"></div></div>
+    </div>
+    <button type="button" class="primary" id="update-button">Update matches</button>
+    <button type="button" class="icon" id="settings-button" title="Settings" aria-label="Settings">⚙</button>
+  </header>
+
+  <div class="banner" id="banner" hidden>
+    <span id="banner-text"></span>
+    <button type="button" class="link" id="banner-action"></button>
+  </div>
+
+  <div class="layout">
+    <form class="filters" id="filters" autocomplete="off">
+      <label>Server
+        <select name="region" id="region"><option value="">Any server</option></select>
+      </label>
+
+      <div class="field">
+        <label for="champion">Your champion</label>
+        <div class="combobox">
+          <input id="champion" name="champion" role="combobox" aria-expanded="false" aria-controls="champion-list" aria-autocomplete="list" placeholder="Any champion" spellcheck="false">
+          <ul class="options" id="champion-list" role="listbox" hidden></ul>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="opponent">Opponent</label>
+        <div class="combobox">
+          <input id="opponent" name="opponent" role="combobox" aria-expanded="false" aria-controls="opponent-list" aria-autocomplete="list" placeholder="Any champion" spellcheck="false">
+          <ul class="options" id="opponent-list" role="listbox" hidden></ul>
+        </div>
+      </div>
+
+      <fieldset class="segmented">
+        <legend>Result</legend>
+        <label><input type="radio" name="result" value="any" checked><span>Any</span></label>
+        <label><input type="radio" name="result" value="win"><span>Win</span></label>
+        <label><input type="radio" name="result" value="loss"><span>Loss</span></label>
+      </fieldset>
+
+      <label>KDA vs lane opponent
+        <select name="kda">
+          <option value="any">Any</option>
+          <option value="ge">At least opponent's</option>
+          <option value="gt">Better than opponent's</option>
+        </select>
+      </label>
+
+      <label>Player rank
+        <select name="rank">
+          <option value="any">Any</option>
+          <option value="emerald">Emerald+</option>
+          <option value="diamond">Diamond+</option>
+          <option value="master">Master+</option>
+          <option value="grandmaster">Grandmaster+</option>
+          <option value="challenger">Challenger</option>
+        </select>
+      </label>
+
+      <label>Date
+        <select name="days">
+          <option value="1">Last day</option>
+          <option value="3">Last 3 days</option>
+          <option value="7" selected>Last 7 days</option>
+          <option value="14">Last 14 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="0">All stored</option>
+        </select>
+      </label>
+
+      <details class="more">
+        <summary>More filters</summary>
+        <label>Minimum duration, minutes
+          <input type="number" name="minMinutes" min="0" step="1" placeholder="Any">
+        </label>
+        <label>Player name or PUUID
+          <input name="player" placeholder="Any" spellcheck="false">
+        </label>
+      </details>
+
+      <button type="reset" class="ghost">Reset filters</button>
+    </form>
+
+    <main class="results">
+      <div class="summary" id="summary"></div>
+      <div class="table-wrap" id="table-wrap" tabindex="0">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Result</th>
+              <th>Matchup</th>
+              <th class="col-player">Player</th>
+              <th class="col-rank">Rank</th>
+              <th class="num">K/D/A</th>
+              <th class="num col-opp">Opp. K/D/A</th>
+              <th class="num">CS</th>
+            </tr>
+          </thead>
+          <tbody id="games"></tbody>
+        </table>
+        <p class="empty" id="empty" hidden></p>
+      </div>
+      <section class="details" id="details" hidden></section>
+    </main>
+  </div>
+
+  <dialog class="settings" id="settings">
+    <form method="dialog" class="dialog-head">
+      <h2>Settings</h2>
+      <button class="icon" aria-label="Close">✕</button>
+    </form>
+
+    <section>
+      <h3>Riot API key</h3>
+      <p class="muted" id="key-status"></p>
+      <form class="row" id="key-form">
+        <input type="password" name="key" placeholder="RGAPI-…" spellcheck="false" required>
+        <button class="primary">Save key</button>
+      </form>
+    </section>
+
+    <section>
+      <h3>Players</h3>
+      <p class="muted">Import Riot IDs from a JSON/CSV file, folder, or URL. Matches are fetched by <b>Update matches</b>.</p>
+      <form class="row" id="import-form">
+        <input name="source" spellcheck="false" required>
+        <button class="primary">Import</button>
+      </form>
+      <details class="players" id="players-details">
+        <summary id="players-summary">Tracked players</summary>
+        <ul id="players"></ul>
+      </details>
+    </section>
+
+    <section>
+      <h3>Database</h3>
+      <p class="muted path" id="db-path"></p>
+      <div class="row">
+        <button type="button" id="export-db">Export snapshot…</button>
+        <button type="button" id="import-db">Import snapshot…</button>
+      </div>
+    </section>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

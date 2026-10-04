@@ -25,22 +25,12 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) < 2 {
-		path, err := core.DefaultDBPath()
-		if err != nil {
-			return err
-		}
-		if custom := os.Getenv("MATCHUP_DB_PATH"); custom != "" {
-			path = custom
-		}
-		return tui.RunInteractive(path)
-	}
-	path, err := core.DefaultDBPath()
+	path, err := core.DBPath()
 	if err != nil {
 		return err
 	}
-	if custom := os.Getenv("MATCHUP_DB_PATH"); custom != "" {
-		path = custom
+	if len(os.Args) < 2 {
+		return tui.RunInteractive(path)
 	}
 	switch os.Args[1] {
 	case "import":

@@ -16,12 +16,21 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+      - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
       - run: just check
+      - run: just check-js
       - run: just build
+      - run: just build-gui
       - uses: actions/upload-artifact@v4
         with:
           name: matchup-lookup-windows
-          path: matchup-lookup.exe
+          path: |
+            matchup-lookup.exe
+            cmd/matchup-gui/build/bin/matchup-lookup-gui.exe

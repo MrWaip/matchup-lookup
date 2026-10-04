@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "matchup-gui",
+  "outputfilename": "matchup-lookup-gui",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "build",
+  "author": {
+    "name": "Constantine Lobkov"
+  },
+  "info": {
+    "productName": "Matchup Lookup",
+    "productVersion": "1.0.0"
+  }
+}

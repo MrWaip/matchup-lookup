@@ -1,0 +1,441 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e1117;
+  --panel: #151a23;
+  --panel-2: #1c2330;
+  --line: #262f3f;
+  --text: #e6e9ef;
+  --muted: #8a94a6;
+  --accent: #c89b3c;
+  --accent-text: #1a1406;
+  --win: #3fb68b;
+  --win-bg: rgb(63 182 139 / 0.14);
+  --loss: #e5534b;
+  --loss-bg: rgb(229 83 75 / 0.14);
+  --focus: #5b9cff;
+  --radius: 8px;
+  font: 14px/1.45 system-ui, "Segoe UI", -apple-system, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --panel-2: #eef0f3;
+    --line: #dde1e7;
+    --text: #1b2230;
+    --muted: #677184;
+    --accent: #a8791c;
+    --accent-text: #ffffff;
+    --win: #1d8a62;
+    --win-bg: rgb(29 138 98 / 0.12);
+    --loss: #c63a32;
+    --loss-bg: rgb(198 58 50 / 0.1);
+  }
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.muted { color: var(--muted); }
+.win { color: var(--win); }
+.loss { color: var(--loss); }
+
+/* ── Controls ─────────────────────────────────────────────────────────── */
+
+button, input, select { font: inherit; color: inherit; }
+
+button {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) { border-color: var(--muted); }
+  &:disabled { opacity: 0.6; cursor: progress; }
+
+  &.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+    &:hover:not(:disabled) { filter: brightness(1.08); border-color: var(--accent); }
+  }
+
+  &.ghost { background: none; color: var(--muted); }
+  &.icon { background: none; border-color: transparent; padding: 6px 9px; font-size: 16px; line-height: 1; }
+  &.link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; }
+}
+
+input, select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: 7px 10px;
+
+  &::placeholder { color: var(--muted); }
+}
+
+label, .field > label, legend {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-right: auto;
+}
+
+.brand-mark { color: var(--accent); }
+
+.update {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  width: min(420px, 40vw);
+
+  &[data-state="running"] .progress-fill { background: var(--accent); }
+  &[data-state="done"] .progress-fill { background: var(--win); }
+  &[data-state="error"] #update-label { color: var(--loss); }
+}
+
+.update-text {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+
+  & > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+}
+
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--muted);
+  transition: width 0.4s ease;
+}
+
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border-bottom: 1px solid var(--line);
+}
+
+/* ── Layout ───────────────────────────────────────────────────────────── */
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 0;
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.more {
+  display: grid;
+  gap: 14px;
+
+  & summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; }
+  &[open] summary { margin-bottom: 14px; }
+  & label + label { margin-top: 14px; }
+}
+
+.segmented {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+
+  & legend { margin-bottom: 5px; }
+  & label { display: block; }
+  & input { position: absolute; opacity: 0; width: 0; }
+
+  & span {
+    display: block;
+    text-align: center;
+    padding: 6px 0;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  & label:first-of-type span { border-radius: var(--radius) 0 0 var(--radius); }
+  & label:last-of-type span { border-radius: 0 var(--radius) var(--radius) 0; }
+  & label + label span { border-left: 0; }
+  & input:checked + span { background: var(--panel-2); border-color: var(--accent); color: var(--accent); }
+  & input:focus-visible + span { outline: 2px solid var(--focus); }
+}
+
+/* ── Champion combobox ────────────────────────────────────────────────── */
+
+.field { display: grid; gap: 5px; }
+
+.combobox { position: relative; }
+
+.options {
+  position: absolute;
+  z-index: 10;
+  inset: calc(100% + 4px) 0 auto;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+
+  & li { padding: 6px 10px; border-radius: 5px; cursor: pointer; }
+  & li.any, & li.none { color: var(--muted); }
+  & li.none { cursor: default; }
+  & li[aria-selected="true"] { background: var(--line); color: var(--text); }
+}
+
+/* ── Results ──────────────────────────────────────────────────────────── */
+
+.results {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+
+  & strong { font-size: 16px; }
+}
+
+.table-wrap {
+  overflow: auto;
+  min-height: 0;
+  outline-offset: -2px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  white-space: nowrap;
+}
+
+tbody tr {
+  cursor: pointer;
+  &:hover { background: var(--panel); }
+  &.selected { background: var(--panel-2); box-shadow: inset 3px 0 var(--accent); }
+}
+
+.num { text-align: right; }
+
+.ellipsis {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Narrow windows keep the essentials; the details pane shows everything. */
+@media (width < 1240px) { .col-rank { display: none; } }
+@media (width < 1100px) { .col-opp { display: none; } }
+@media (width < 960px) { .col-player { display: none; } }
+
+.badge {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+
+  &.win { background: var(--win-bg); }
+  &.loss { background: var(--loss-bg); }
+}
+
+.empty {
+  margin: 48px auto;
+  max-width: 420px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ── Match details ────────────────────────────────────────────────────── */
+
+.details {
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+
+  & header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  & h2 { margin: 0 auto 0 0; font-size: 17px; }
+
+  & dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px 24px;
+    margin: 0;
+  }
+
+  & dt { color: var(--muted); font-size: 12px; }
+  & dd { margin: 0; overflow-wrap: anywhere; }
+  & .note { margin: 12px 0 0; font-size: 12px; }
+}
+
+/* ── Settings dialog ──────────────────────────────────────────────────── */
+
+.settings {
+  width: min(640px, 92vw);
+  max-height: 86vh;
+  padding: 0 20px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+
+  &::backdrop { background: rgb(0 0 0 / 0.55); }
+
+  & h2 { margin: 0; font-size: 17px; }
+  & h3 { margin: 0 0 6px; font-size: 14px; }
+  & section { padding: 16px 0; border-top: 1px solid var(--line); }
+  & p { margin: 0 0 10px; }
+}
+
+.dialog-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0 12px;
+  background: var(--panel);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  & input { flex: 1; }
+}
+
+.path { font-family: ui-monospace, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+
+.players {
+  margin-top: 12px;
+
+  & summary { cursor: pointer; color: var(--muted); }
+  & ul { margin: 8px 0 0; padding: 0; list-style: none; max-height: 260px; overflow-y: auto; }
+  & li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  & .tags { display: block; color: var(--muted); font-size: 12px; }
+}
+
+/* ── Toasts ───────────────────────────────────────────────────────────── */
+
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 100;
+  display: grid;
+  gap: 8px;
+  max-width: min(440px, 90vw);
+}
+
+.toast {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+  animation: toast-in 0.18s ease-out;
+  overflow-wrap: anywhere;
+
+  &.error { border-color: var(--loss); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
