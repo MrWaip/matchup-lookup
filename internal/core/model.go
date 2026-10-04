@@ -22,6 +22,9 @@ type LeagueEntry struct {
 }
 
 type Match struct {
+	// Raw is the Riot API response the match was decoded from, stored
+	// compressed so fields not modelled here stay available.
+	Raw      []byte `json:"-"`
 	Metadata struct {
 		MatchID string `json:"matchId"`
 	} `json:"metadata"`

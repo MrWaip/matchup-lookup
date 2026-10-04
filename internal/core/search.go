@@ -1,11 +1,13 @@
 package core
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"matchup-lookup/internal/store"
 )
 
 type Filters struct {
@@ -57,160 +59,98 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 	if f.Days < 0 || f.MinMinutes < 0 || f.Limit < 1 {
 		return nil, 0, 0, 0, 0, fmt.Errorf("days/minutes must be nonnegative; limit must be positive")
 	}
-	var players, total int
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM players`).Scan(&players); err != nil {
-		return nil, 0, 0, 0, 0, err
+	params := store.SearchGamesParams{
+		Region:      strings.ToLower(f.Region),
+		Champion:    f.Champion,
+		Opponent:    f.Opponent,
+		MinRank:     int64(threshold),
+		MinDuration: int64(f.MinMinutes) * 60,
+		Player:      f.Player,
 	}
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM tracked_games`).Scan(&total); err != nil {
-		return nil, 0, 0, 0, 0, err
-	}
-	where := []string{"1=1"}
-	args := []any{}
-	if f.Region != "" {
-		where = append(where, "m.platform=? COLLATE NOCASE")
-		args = append(args, strings.ToLower(f.Region))
-	}
-	if f.Opponent != "" {
-		where = append(where, "g.opponent_champion=? COLLATE NOCASE")
-		args = append(args, f.Opponent)
-	}
-	if f.Champion != "" {
-		where = append(where, "g.champion=? COLLATE NOCASE")
-		args = append(args, f.Champion)
-	}
-	// Compare exact KDA ratios without floating point rounding. Unknown opponent KDA never passes.
-	switch strings.ToLower(f.KDACompare) {
+	switch kda := strings.ToLower(f.KDACompare); kda {
 	case "", "any":
 	case "ge", "gt":
-		op := ">="
-		if strings.EqualFold(f.KDACompare, "gt") {
-			op = ">"
-		}
-		where = append(where, "g.opponent_kills IS NOT NULL AND (g.kills+g.assists)*MAX(1,g.opponent_deaths) "+op+" (g.opponent_kills+g.opponent_assists)*MAX(1,g.deaths)")
+		params.Kda = kda
 	default:
 		return nil, 0, 0, 0, 0, fmt.Errorf("KDA comparison must be any, ge, or gt")
 	}
-	switch strings.ToLower(f.Result) {
+	switch result := strings.ToLower(f.Result); result {
 	case "", "any":
-	case "win":
-		where = append(where, "g.win=1")
-	case "loss":
-		where = append(where, "g.win=0")
+	case "win", "loss":
+		params.Result = result
 	default:
 		return nil, 0, 0, 0, 0, fmt.Errorf("result must be any, win, or loss")
 	}
-	if threshold > 0 {
-		where = append(where, `CASE UPPER(g.player_rank_tier)
-        WHEN 'EMERALD' THEN 1 WHEN 'DIAMOND' THEN 2 WHEN 'MASTER' THEN 3
-        WHEN 'GRANDMASTER' THEN 4 WHEN 'CHALLENGER' THEN 5 ELSE 0 END >= ?`)
-		args = append(args, threshold)
-	}
 	if f.Days > 0 {
-		where = append(where, "m.game_creation>=?")
-		args = append(args, time.Now().AddDate(0, 0, -f.Days).UnixMilli())
-	}
-	if f.MinMinutes > 0 {
-		where = append(where, "m.game_duration>=?")
-		args = append(args, f.MinMinutes*60)
+		params.CreatedSince = time.Now().AddDate(0, 0, -f.Days).UnixMilli()
 	}
 	if f.Patch != "" {
-		where = append(where, "m.game_version LIKE ?")
-		args = append(args, rawPatch(f.Patch)+".%")
+		params.PatchMajor, params.PatchMinor = store.ParsePatch(rawPatch(f.Patch))
+		if params.PatchMajor == 0 {
+			return nil, 0, 0, 0, 0, fmt.Errorf("patch must look like 26.19")
+		}
 	}
-	if f.Player != "" {
-		where = append(where, "(g.player_game_name=? COLLATE NOCASE OR p.game_name=? COLLATE NOCASE OR g.player_puuid=?)")
-		args = append(args, f.Player, f.Player, f.Player)
-	}
-	// A tracked game is stored from the seed player's point of view. Project the
-	// cached lane opponent as a second, searchable point of view. Match-v5 has
-	// no opponent rank snapshot, so only a separately tracked opponent has rank.
-	const perspectives = `WITH search_games AS (
-      SELECT g.match_id, g.player_puuid, g.player_game_name, g.player_tag_line,
-        g.player_rank_tier, g.player_rank_division, g.champion,
-        g.opponent_puuid, g.opponent_game_name, g.opponent_tag_line,
-        g.opponent_champion, g.matchup_status, g.win, g.kills, g.deaths,
-        g.assists, g.cs, g.opponent_kills, g.opponent_deaths, g.opponent_assists
-      FROM tracked_games g
-      UNION ALL
-      SELECT g.match_id, g.opponent_puuid,
-        COALESCE(NULLIF(g.opponent_game_name,''),json_extract(participant.value,'$.riotIdGameName'),''),
-        COALESCE(NULLIF(g.opponent_tag_line,''),json_extract(participant.value,'$.riotIdTagline'),''),
-        COALESCE(rp.rank_tier,''), COALESCE(rp.rank_division,''),
-        g.opponent_champion, g.player_puuid, g.player_game_name,
-        g.player_tag_line, g.champion, g.matchup_status, 1-g.win,
-        COALESCE(g.opponent_kills,json_extract(participant.value,'$.kills')),
-        COALESCE(g.opponent_deaths,json_extract(participant.value,'$.deaths')),
-        COALESCE(g.opponent_assists,json_extract(participant.value,'$.assists')),
-        COALESCE(json_extract(participant.value,'$.totalMinionsKilled'),0)
-          + COALESCE(json_extract(participant.value,'$.neutralMinionsKilled'),0),
-        g.kills, g.deaths, g.assists
-      FROM tracked_games g
-      JOIN matches cached ON cached.match_id=g.match_id
-      JOIN json_each(cached.raw_json,'$.info.participants') participant
-        ON json_extract(participant.value,'$.puuid')=g.opponent_puuid
-      LEFT JOIN players rp ON rp.puuid=g.opponent_puuid
-      WHERE g.opponent_puuid<>'' AND g.opponent_champion<>''
-        AND NOT EXISTS (SELECT 1 FROM tracked_games own
-          WHERE own.match_id=g.match_id AND own.player_puuid=g.opponent_puuid)
-    )`
-	joins := ` FROM search_games g JOIN matches m ON m.match_id=g.match_id
-      LEFT JOIN players p ON p.puuid=g.player_puuid`
-	conditions := ` WHERE ` + strings.Join(where, " AND ")
-	var matching, wins int
-	if err := s.DB.QueryRow(perspectives+` SELECT COUNT(*), COALESCE(SUM(g.win),0)`+joins+conditions, args...).Scan(&matching, &wins); err != nil {
-		return nil, 0, 0, 0, 0, err
-	}
-	query := `SELECT m.game_creation, m.platform, g.player_game_name, g.player_tag_line, COALESCE(p.game_name,''), COALESCE(p.tag_line,''),
-      g.player_rank_tier, g.player_rank_division, g.champion, g.opponent_champion, g.opponent_game_name,
-      g.opponent_tag_line, g.matchup_status, g.win, g.kills, g.deaths, g.assists, g.cs,
-	  g.opponent_kills,g.opponent_deaths,g.opponent_assists,m.game_version, m.match_id,
-      json_extract(detail.value,'$.summoner1Id'), json_extract(detail.value,'$.summoner2Id'),
-      json_extract(detail.value,'$.perks.styles[0].selections[0].perk'),
-      json_extract(detail.value,'$.perks.styles[1].selections[0].perk'),
-      json_extract(detail.value,'$.perks.styles[1].selections[1].perk')` + joins + `
-      LEFT JOIN json_each(m.raw_json,'$.info.participants') detail
-        ON json_extract(detail.value,'$.puuid')=g.player_puuid` + conditions + ` ORDER BY m.game_creation DESC, m.match_id DESC LIMIT ?`
-	rows, err := s.DB.Query(perspectives+query, append(args, f.Limit)...)
+	ctx := context.Background()
+	players, err := s.q.CountPlayers(ctx)
 	if err != nil {
 		return nil, 0, 0, 0, 0, err
 	}
-	defer rows.Close()
-	var out []Result
-	for rows.Next() {
-		var creation int64
-		var platform, fg, ft, pg, pt, tier, division, champion, opp, og, ot, status, version, id string
-		var win, kills, deaths, assists, cs int
-		var okills, odeaths, oassists sql.NullInt64
-		var spell1, spell2, keystone, secondary1, secondary2 sql.NullInt64
-		if err := rows.Scan(&creation, &platform, &fg, &ft, &pg, &pt, &tier, &division, &champion, &opp, &og, &ot, &status, &win, &kills, &deaths, &assists, &cs, &okills, &odeaths, &oassists, &version, &id, &spell1, &spell2, &keystone, &secondary1, &secondary2); err != nil {
-			return nil, 0, 0, 0, 0, err
-		}
-		if fg == "" {
-			fg, ft = pg, pt
-		}
-		if opp == "" {
-			opp = "?"
-		}
-		oppID := "?"
-		if og != "" {
-			oppID = og + "#" + ot
-		}
-		patch := displayPatch(version)
-		rank := strings.TrimSpace(tier + " " + division)
-		if rank == "" {
-			rank = "unknown"
-		}
-		oppKDA := "?"
-		if okills.Valid && odeaths.Valid && oassists.Valid {
-			oppKDA = fmt.Sprintf("%d/%d/%d", okills.Int64, odeaths.Int64, oassists.Int64)
-		}
-		out = append(out, Result{Date: time.UnixMilli(creation).Local(), Region: PlatformLabel(platform), PlayerID: fg + "#" + ft, Champion: champion,
-			Rank: rank, Opponent: opp, OpponentID: oppID, OpponentKDA: oppKDA,
-			Status: status, Win: win == 1, KDA: fmt.Sprintf("%d/%d/%d", kills, deaths, assists),
-			CS: cs, Patch: patch, MatchID: id, Spells: loadoutPair(spellName, spell1, spell2),
-			Keystone: runeName(keystone), SecondaryRunes: loadoutPair(runeName, secondary1, secondary2)})
+	total, err := s.q.CountTrackedGames(ctx)
+	if err != nil {
+		return nil, 0, 0, 0, 0, err
 	}
-	return out, players, total, matching, wins, rows.Err()
+	rows, err := s.q.SearchGames(ctx, params)
+	if err != nil {
+		return nil, 0, 0, 0, 0, err
+	}
+	wins := 0
+	for _, r := range rows {
+		if r.Win {
+			wins++
+		}
+	}
+	matching := len(rows)
+	if len(rows) > f.Limit {
+		rows = rows[:f.Limit]
+	}
+	out := make([]Result, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, resultFromRow(r))
+	}
+	return out, int(players), int(total), matching, wins, nil
+}
+
+func resultFromRow(r store.SearchGamesRow) Result {
+	gameName, tagLine := r.RiotIDGameName, r.RiotIDTagline
+	if gameName == "" {
+		gameName, tagLine = r.PlayerGameName, r.PlayerTagLine
+	}
+	opponent := "?"
+	if r.OpponentChampion.Valid && r.OpponentChampion.String != "" {
+		opponent = r.OpponentChampion.String
+	}
+	opponentID := "?"
+	if r.OpponentGameName.Valid && r.OpponentGameName.String != "" {
+		opponentID = r.OpponentGameName.String + "#" + r.OpponentTagLine.String
+	}
+	opponentKDA := "?"
+	if r.OpponentKills.Valid && r.OpponentDeaths.Valid && r.OpponentAssists.Valid {
+		opponentKDA = fmt.Sprintf("%d/%d/%d", r.OpponentKills.Int64, r.OpponentDeaths.Int64, r.OpponentAssists.Int64)
+	}
+	rank := strings.TrimSpace(r.RankTier + " " + r.RankDivision)
+	if rank == "" {
+		rank = "unknown"
+	}
+	return Result{
+		Date: time.UnixMilli(r.GameCreation).Local(), Region: PlatformLabel(r.Platform),
+		PlayerID: gameName + "#" + tagLine, Champion: r.Champion, Rank: rank,
+		Opponent: opponent, OpponentID: opponentID, OpponentKDA: opponentKDA,
+		Status: r.MatchupStatus, Win: r.Win, KDA: fmt.Sprintf("%d/%d/%d", r.Kills, r.Deaths, r.Assists),
+		CS: int(r.Cs), Patch: displayPatch(r.GameVersion), MatchID: r.MatchID,
+		Spells:         loadoutPair(spellName, r.Summoner1ID, r.Summoner2ID),
+		Keystone:       runeName(r.Keystone),
+		SecondaryRunes: loadoutPair(runeName, r.SecondaryRune1, r.SecondaryRune2),
+	}
 }
 
 // Riot's 2026 API version is 16.x while its player-facing patch name is 26.x.

@@ -1,59 +1,21 @@
 package core
 
 import (
-	"database/sql"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"matchup-lookup/internal/store"
 )
 
-// VACUUM INTO creates a consistent standalone SQLite snapshot, including any
-// committed changes that may currently live in a WAL file.
-func ExportDatabase(store *Store, output string) error {
+// ExportDatabase writes a standalone snapshot of the open database.
+func ExportDatabase(s *Store, output string) error {
 	if output == "" {
 		return fmt.Errorf("output path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(output), 0700); err != nil {
-		return err
-	}
-	if _, err := os.Stat(output); err == nil {
-		return fmt.Errorf("export file already exists: %s", output)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if _, err := store.DB.Exec(`VACUUM INTO ?`, output); err != nil {
-		return err
-	}
-	return os.Chmod(output, 0600)
-}
-
-func verifyDatabase(path string) error {
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	var check string
-	if err := db.QueryRow(`PRAGMA quick_check`).Scan(&check); err != nil {
-		return err
-	}
-	if check != "ok" {
-		return fmt.Errorf("SQLite integrity check failed: %s", check)
-	}
-	for _, table := range []string{"players", "matches", "tracked_games"} {
-		var found int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&found); err != nil {
-			return err
-		}
-		if found == 0 {
-			return fmt.Errorf("not a matchup-lookup database: missing %s", table)
-		}
-	}
-	return nil
+	return store.Export(s.db, output)
 }
 
 // ImportDatabase replaces the local database after checking the portable
@@ -86,7 +48,7 @@ func ImportDatabase(target, source string) (string, error) {
 			return "", err
 		}
 	}
-	if err := verifyDatabase(sourceAbs); err != nil {
+	if err := store.Verify(sourceAbs); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(targetAbs), 0700); err != nil {
@@ -115,7 +77,7 @@ func ImportDatabase(target, source string) (string, error) {
 	if err := os.Chmod(tmpPath, 0600); err != nil {
 		return "", err
 	}
-	if err := verifyDatabase(tmpPath); err != nil {
+	if err := store.Verify(tmpPath); err != nil {
 		return "", err
 	}
 	backup := ""

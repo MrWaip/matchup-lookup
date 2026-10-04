@@ -33,6 +33,10 @@ db-import *args:
 build:
     go build .
 
+# Regenerate internal/store/*_gen.go after editing migrations or queries.
+generate:
+    sqlc generate
+
 check:
     go vet ./...
     go test ./...

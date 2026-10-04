@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"matchup-lookup/internal/store"
 )
 
 type Champion struct{ ID, Name string }
@@ -17,60 +19,42 @@ type Champion struct{ ID, Name string }
 var catalogHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 func (s *Store) Champions() ([]Champion, error) {
-	rows, err := s.DB.Query(`SELECT id,display_name FROM champions
-      UNION SELECT champion,champion FROM tracked_games WHERE champion<>''
-        AND champion NOT IN (SELECT id FROM champions)
-      UNION SELECT opponent_champion,opponent_champion FROM tracked_games WHERE opponent_champion<>''
-        AND opponent_champion NOT IN (SELECT id FROM champions)
-      ORDER BY 2 COLLATE NOCASE`)
+	rows, err := s.q.ListChampions(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var result []Champion
-	for rows.Next() {
-		var c Champion
-		if err := rows.Scan(&c.ID, &c.Name); err != nil {
-			return nil, err
-		}
-		result = append(result, c)
+	result := make([]Champion, 0, len(rows))
+	for _, r := range rows {
+		result = append(result, Champion{ID: r.ID, Name: r.DisplayName})
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 func (s *Store) catalogAge() (time.Duration, error) {
-	var stamp string
-	err := s.DB.QueryRow(`SELECT value FROM app_settings WHERE key='champion_catalog_at'`).Scan(&stamp)
+	stamp, found, err := s.setting("champion_catalog_at")
 	if err != nil {
-		return 365 * 24 * time.Hour, nil
+		return 0, err
 	}
-	sec, err := strconv.ParseInt(stamp, 10, 64)
-	if err != nil {
+	sec, parseErr := strconv.ParseInt(stamp, 10, 64)
+	if !found || parseErr != nil {
 		return 365 * 24 * time.Hour, nil
 	}
 	return time.Since(time.Unix(sec, 0)), nil
 }
 
 func (s *Store) SaveChampions(champions []Champion) error {
-	tx, err := s.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, c := range champions {
-		if c.ID == "" || c.Name == "" {
-			continue
+	ctx := context.Background()
+	return s.withTx(func(q *store.Queries) error {
+		for _, c := range champions {
+			if c.ID == "" || c.Name == "" {
+				continue
+			}
+			if err := q.UpsertChampion(ctx, store.UpsertChampionParams{ID: c.ID, DisplayName: c.Name}); err != nil {
+				return err
+			}
 		}
-		if _, err := tx.Exec(`INSERT INTO champions(id,display_name) VALUES(?,?)
-          ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name`, c.ID, c.Name); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(`INSERT INTO app_settings(key,value) VALUES('champion_catalog_at',?)
-      ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
-		return err
-	}
-	return tx.Commit()
+		return q.SetSetting(ctx, store.SetSettingParams{Key: "champion_catalog_at", Value: strconv.FormatInt(time.Now().Unix(), 10)})
+	})
 }
 
 func EnsureChampions(ctx context.Context, s *Store) ([]Champion, error) {

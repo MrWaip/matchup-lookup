@@ -130,6 +130,13 @@ func (c *RiotClient) Match(ctx context.Context, platform, id string) (core.Match
 	if err != nil {
 		return m, err
 	}
-	err = c.get(ctx, route, "/lol/match/v5/matches/"+url.PathEscape(id), &m)
-	return m, err
+	var raw json.RawMessage
+	if err := c.get(ctx, route, "/lol/match/v5/matches/"+url.PathEscape(id), &raw); err != nil {
+		return m, err
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return m, err
+	}
+	m.Raw = raw
+	return m, nil
 }

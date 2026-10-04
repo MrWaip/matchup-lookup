@@ -129,13 +129,10 @@ func TestCollectMatchRefreshesLegacyLoadoutOnce(t *testing.T) {
 	if err := store.SaveMatch(m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.DB.Exec(`UPDATE matches SET raw_json=json_remove(raw_json,
-		'$.info.participants[0].summoner1Id', '$.info.participants[0].summoner2Id', '$.info.participants[0].perks')`); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.SaveTrackedGame(m, player, m.Info.Participants[0], &m.Info.Participants[1], "confirmed"); err != nil {
 		t.Fatal(err)
 	}
+	forgetLoadout(t, store, player.PUUID)
 	if err := store.MarkChecked(m.Metadata.MatchID, player.PUUID); err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +152,16 @@ func TestCollectMatchRefreshesLegacyLoadoutOnce(t *testing.T) {
 	rows, _, _, _, _, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
 	if err != nil || len(rows) != 1 || rows[0].Spells != "Flash + Teleport" || rows[0].SecondaryRunes != "Bone Plating + Overgrowth" {
 		t.Fatalf("refreshed loadout: rows=%+v err=%v", rows, err)
+	}
+}
+
+// forgetLoadout makes a stored participant look like one saved before
+// loadouts were collected (migrated from JSON without them).
+func forgetLoadout(t *testing.T, store *Store, puuid string) {
+	t.Helper()
+	if _, err := store.db.Exec(`UPDATE match_participants
+		SET summoner1_id = NULL, summoner2_id = NULL, keystone = NULL WHERE puuid = ?`, puuid); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -178,13 +185,10 @@ func TestUpdateBackfillsLegacyMatchesOutsideRecentList(t *testing.T) {
 	if err := store.SaveMatch(m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.DB.Exec(`UPDATE matches SET raw_json=json_remove(raw_json,
-		'$.info.participants[0].summoner1Id', '$.info.participants[0].summoner2Id', '$.info.participants[0].perks')`); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.SaveTrackedGame(m, player, m.Info.Participants[0], &m.Info.Participants[1], "confirmed"); err != nil {
 		t.Fatal(err)
 	}
+	forgetLoadout(t, store, player.PUUID)
 	m.Info.Participants[0].Summoner1ID = 4
 	m.Info.Participants[0].Summoner2ID = 12
 	api := &noRecentRiot{fakeRiot: fakeRiot{match: m}}
@@ -319,5 +323,44 @@ func TestOpponentPositionFallbackAndAmbiguity(t *testing.T) {
 	o, status = opponent(m, f)
 	if o != nil || status != "ambiguous" {
 		t.Fatalf("not top: %+v %s", o, status)
+	}
+}
+
+func TestPruneOldPatchesKeepsChecks(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "matches.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	player := Player{PUUID: "fiora", GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}
+	if err := store.UpsertPlayer(Seed{Region: player.Region}, Account{PUUID: player.PUUID, GameName: player.GameName, TagLine: player.TagLine}); err != nil {
+		t.Fatal(err)
+	}
+	for id, version := range map[string]string{"EUW1_OLD": "16.9.1", "EUW1_NEW": "16.19.1"} {
+		m := sampleMatch()
+		m.Metadata.MatchID, m.Info.GameVersion = id, version
+		if err := store.SaveMatch(m); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveTrackedGame(m, player, m.Info.Participants[0], &m.Info.Participants[1], "confirmed"); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.MarkChecked(id, player.PUUID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := store.PruneOldPatches()
+	if err != nil || removed != 1 {
+		t.Fatalf("removed %d, err %v; want the 16.9 match only (16.19 is newer)", removed, err)
+	}
+	rows, _, total, _, _, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
+	if err != nil || total != 1 || len(rows) != 1 || rows[0].MatchID != "EUW1_NEW" {
+		t.Fatalf("after prune: total=%d rows=%+v err=%v", total, rows, err)
+	}
+	if _, cached, _ := store.CachedMatch("EUW1_OLD"); cached {
+		t.Fatal("old match still cached")
+	}
+	if checked, err := store.GameExists("EUW1_OLD", player.PUUID); err != nil || !checked {
+		t.Fatal("pruned match must stay checked so it is not downloaded again")
 	}
 }

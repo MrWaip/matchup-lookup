@@ -84,9 +84,22 @@ func ImportSeeds(store *Store, seeds []Seed, onSaved func(saved, total int)) err
 	return nil
 }
 
-// UpdatePlayers resolves pending Riot IDs and collects recent matches.
-// reporter may be nil.
+// UpdatePlayers resolves pending Riot IDs and collects recent matches, then
+// drops matches from earlier patches. reporter may be nil.
 func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter UpdateReporter) error {
+	// Prune before refreshing old loadouts so expired matches cost no API calls.
+	if _, err := store.PruneOldPatches(); err != nil {
+		return err
+	}
+	if err := updatePlayers(ctx, store, api, reporter); err != nil {
+		return err
+	}
+	// New matches may have revealed a newer patch.
+	_, err := store.PruneOldPatches()
+	return err
+}
+
+func updatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter UpdateReporter) error {
 	pending, err := store.PendingSeeds()
 	if err != nil {
 		return err
