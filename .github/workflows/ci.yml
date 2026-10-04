@@ -25,7 +25,14 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
-      - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+      # Compiling the Wails CLI takes ~2 minutes; reuse it until the version changes.
+      - id: wails-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/wails.exe
+          key: wails-cli-v2.16.0-${{ runner.os }}
+      - if: steps.wails-cache.outputs.cache-hit != 'true'
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
       - run: just check
       - run: just check-js
       - run: just build

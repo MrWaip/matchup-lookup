@@ -103,10 +103,12 @@ func TestOpenMigratesV2Database(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err = Open(path)
+	reopened, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Windows cannot delete the temp dir while the file is open.
+	defer reopened.Close()
 	if backups, _ := filepath.Glob(path + ".pre-migration-*.db"); len(backups) != 1 {
 		t.Fatalf("unexpected backup on reopen: %v", backups)
 	}
