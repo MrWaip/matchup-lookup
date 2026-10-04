@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+
+	"matchup-lookup/internal/api"
+	"matchup-lookup/internal/core"
+	"matchup-lookup/internal/tui"
 )
 
 func main() {
-	restoreConsole := initConsole()
+	restoreConsole := tui.InitConsole()
 	err := run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -22,16 +26,16 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		path, err := defaultDBPath()
+		path, err := core.DefaultDBPath()
 		if err != nil {
 			return err
 		}
 		if custom := os.Getenv("MATCHUP_DB_PATH"); custom != "" {
 			path = custom
 		}
-		return RunInteractive(path)
+		return tui.RunInteractive(path)
 	}
-	path, err := defaultDBPath()
+	path, err := core.DefaultDBPath()
 	if err != nil {
 		return err
 	}
@@ -41,31 +45,31 @@ func run() error {
 	switch os.Args[1] {
 	case "import":
 		flags := flag.NewFlagSet("import", flag.ContinueOnError)
-		source := flags.String("source", DefaultPlayersSource, "local JSON/CSV path or HTTP(S) URL")
+		source := flags.String("source", core.DefaultPlayersSource, "local JSON/CSV path or HTTP(S) URL")
 		if err := flags.Parse(os.Args[2:]); err != nil {
 			return err
 		}
-		seeds, err := LoadSeeds(*source)
+		seeds, err := core.LoadSeeds(*source)
 		if err != nil {
 			return err
 		}
-		store, err := OpenStore(path)
+		store, err := core.OpenStore(path)
 		if err != nil {
 			return err
 		}
 		defer store.Close()
 		fmt.Println("Database:", path)
-		return ImportSeeds(store, seeds)
+		return core.ImportSeeds(store, seeds)
 	case "update":
 		if len(os.Args) != 2 {
 			return fmt.Errorf("update takes no arguments; use import -source to add players")
 		}
-		store, err := OpenStore(path)
+		store, err := core.OpenStore(path)
 		if err != nil {
 			return err
 		}
 		defer store.Close()
-		key, err := configuredRiotKey(store)
+		key, err := core.ConfiguredRiotKey(store)
 		if err != nil {
 			return err
 		}
@@ -75,17 +79,17 @@ func run() error {
 		fmt.Println("Database:", path)
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return UpdatePlayers(ctx, store, NewRiotClient(key))
+		return core.UpdatePlayers(ctx, store, api.NewRiotClient(key))
 	case "players":
-		store, err := OpenStore(path)
+		store, err := core.OpenStore(path)
 		if err != nil {
 			return err
 		}
 		defer store.Close()
-		return PrintPlayers(store)
+		return tui.PrintPlayers(store)
 	case "find":
 		flags := flag.NewFlagSet("find", flag.ContinueOnError)
-		var f Filters
+		var f core.Filters
 		flags.StringVar(&f.Champion, "champion", "", "tracked player's champion, e.g. Fiora")
 		flags.StringVar(&f.Opponent, "opponent", "", "opponent champion, e.g. Darius")
 		flags.StringVar(&f.Result, "result", "any", "any, win, loss")
@@ -100,19 +104,19 @@ func run() error {
 		if err := flags.Parse(os.Args[2:]); err != nil {
 			return err
 		}
-		store, err := OpenStore(path)
+		store, err := core.OpenStore(path)
 		if err != nil {
 			return err
 		}
 		defer store.Close()
-		rows, players, total, matches, wins, err := Search(store, f)
+		rows, players, total, matches, wins, err := core.Search(store, f)
 		if err != nil {
 			return err
 		}
 		if err := store.SaveFilters(f); err != nil {
 			return err
 		}
-		PrintResults(rows, players, total, matches, wins)
+		tui.PrintResults(rows, players, total, matches, wins)
 		return nil
 	case "path":
 		fmt.Println(path)
@@ -126,13 +130,13 @@ func run() error {
 		if *matchID == "" {
 			return fmt.Errorf("watch requires -match MATCH_ID")
 		}
-		client, err := connectLeagueClient()
+		client, err := api.ConnectLeagueClient()
 		if err != nil {
 			return err
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return openReplay(ctx, client, *matchID)
+		return api.OpenReplay(ctx, client, *matchID)
 	case "db-export":
 		flags := flag.NewFlagSet("db-export", flag.ContinueOnError)
 		output := flags.String("output", "", "destination .db file")
@@ -145,12 +149,12 @@ func run() error {
 		if _, err := os.Stat(path); err != nil {
 			return err
 		}
-		store, err := OpenStore(path)
+		store, err := core.OpenStore(path)
 		if err != nil {
 			return err
 		}
 		defer store.Close()
-		if err := ExportDatabase(store, *output); err != nil {
+		if err := core.ExportDatabase(store, *output); err != nil {
 			return err
 		}
 		fmt.Println("Database exported to", *output)
@@ -164,7 +168,7 @@ func run() error {
 		if *source == "" {
 			return fmt.Errorf("db-import requires -source PATH")
 		}
-		backup, err := ImportDatabase(path, *source)
+		backup, err := core.ImportDatabase(path, *source)
 		if err != nil {
 			return err
 		}
@@ -191,7 +195,7 @@ Commands for scripting:
   import [-source URL-or-path]     Import JSON/CSV players into SQLite
   players                         List stored player pool
   update                          Fetch recent matches for stored players
-  find [filters]                   Search stored games (no API key needed)
+  find [filters]                   core.Search stored games (no API key needed)
   watch -match MATCH_ID            Open a replay in the running League Client
   path                             Show database location
   db-export -output PATH           Export a portable SQLite snapshot
