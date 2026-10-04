@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -59,17 +60,22 @@ func run() error {
 			return err
 		}
 		defer store.Close()
-		key, err := core.ConfiguredRiotKey(store)
+		keys, err := store.UsableRiotKeys()
 		if err != nil {
-			return err
-		}
-		if key == "" {
-			return fmt.Errorf("set Riot API key in the interactive menu or RIOT_API_KEY")
+			return fmt.Errorf("%w (add keys in the interactive menu under Riot API keys, or set RIOT_API_KEY)", err)
 		}
 		fmt.Println("Database:", path)
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return tui.UpdatePlayers(ctx, store, api.NewRiotClient(key))
+		client := api.NewRiotClient(keys, func(key core.APIKey, reason string) {
+			fmt.Printf("\n[KEY] Riot rejected key %s (%s); trying the next one\n", key.Label, reason)
+			_ = store.MarkKeyRejected(key, reason) // best effort: rejected again next run
+		})
+		err = tui.UpdatePlayers(ctx, store, client)
+		if errors.Is(err, core.ErrKeyRejected) {
+			return fmt.Errorf("%w. Data fetched so far is saved; add a new key in the interactive menu or set RIOT_API_KEY", err)
+		}
+		return err
 	case "players":
 		store, err := core.OpenStore(path)
 		if err != nil {

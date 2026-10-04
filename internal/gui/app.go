@@ -4,9 +4,9 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -75,11 +75,21 @@ type Server struct {
 	Players int    `json:"players"`
 }
 
+// Key describes a Riot API key without exposing its value.
+type Key struct {
+	ID        int64  `json:"id"`
+	Label     string `json:"label"`
+	Masked    string `json:"masked"`
+	FromEnv   bool   `json:"fromEnv"`
+	Rejected  bool   `json:"rejected"`
+	Rejection string `json:"rejection"`
+}
+
 type Overview struct {
 	Version       string   `json:"version"`
 	DBPath        string   `json:"dbPath"`
-	HasKey        bool     `json:"hasKey"`
-	KeyFromEnv    bool     `json:"keyFromEnv"`
+	Keys          []Key    `json:"keys"`
+	HasUsableKey  bool     `json:"hasUsableKey"`
 	Players       int      `json:"players"`
 	Pending       int      `json:"pending"`
 	Servers       []Server `json:"servers"`
@@ -90,13 +100,17 @@ func (a *App) Overview() (Overview, error) {
 	return withStore(a, func(s *core.Store) (Overview, error) {
 		_ = core.RefreshLivePatch(a.ctx, s) // offline: search uses the last known patch
 		a.loadIcons(s)
-		o := Overview{Version: core.Version(), DBPath: a.path, PlayersSource: core.DefaultPlayersSource,
-			KeyFromEnv: strings.TrimSpace(os.Getenv("RIOT_API_KEY")) != ""}
-		key, err := core.ConfiguredRiotKey(s)
+		o := Overview{Version: core.Version(), DBPath: a.path, PlayersSource: core.DefaultPlayersSource}
+		keys, err := s.RiotKeys()
 		if err != nil {
 			return o, err
 		}
-		o.HasKey = key != ""
+		o.Keys = make([]Key, len(keys))
+		for i, k := range keys {
+			o.Keys[i] = Key{ID: k.ID, Label: k.Label, Masked: k.Masked(), FromEnv: k.FromEnv,
+				Rejected: !k.Usable(), Rejection: k.Rejection}
+			o.HasUsableKey = o.HasUsableKey || k.Usable()
+		}
 		players, err := s.ListPlayers()
 		if err != nil {
 			return o, err
@@ -257,6 +271,7 @@ type UpdateStatus struct {
 	Cancelled    bool   `json:"cancelled"`
 	Finished     bool   `json:"finished"`
 	Error        string `json:"error"`
+	KeyRejected  bool   `json:"keyRejected"`
 	Percent      int    `json:"percent"`
 	Resolved     int    `json:"resolved"`
 	ResolveTotal int    `json:"resolveTotal"`
@@ -276,6 +291,7 @@ func (a *App) UpdateStatus() UpdateStatus {
 		PlayerTotal: p.PlayerTotal, Matches: p.Matches, MatchTotal: p.MatchTotal}
 	if s.Err != nil && !s.Cancelled {
 		status.Error = s.Err.Error()
+		status.KeyRejected = errors.Is(s.Err, core.ErrKeyRejected)
 	}
 	if wait := time.Until(s.WaitUntil); s.Running && wait > 0 {
 		status.WaitSeconds = int(wait.Round(time.Second).Seconds())
@@ -285,22 +301,37 @@ func (a *App) UpdateStatus() UpdateStatus {
 }
 
 func (a *App) StartUpdate() error {
-	key, err := withStore(a, core.ConfiguredRiotKey)
+	keys, err := withStore(a, (*core.Store).UsableRiotKeys)
 	if err != nil {
 		return err
 	}
-	if key == "" {
-		return fmt.Errorf("set a Riot API key first")
-	}
-	return a.background.Start(api.NewRiotClient(key))
+	return a.background.Start(api.NewRiotClient(keys, func(key core.APIKey, reason string) {
+		// Best effort: if this write fails, the key is rejected again next run.
+		_, _ = withStore(a, func(s *core.Store) (struct{}, error) { return struct{}{}, s.MarkKeyRejected(key, reason) })
+	}))
 }
 
 func (a *App) CancelUpdate() { a.background.Stop() }
 
-func (a *App) SetRiotKey(key string) error {
-	_, err := withStore(a, func(s *core.Store) (struct{}, error) {
-		return struct{}{}, s.SetRiotKey(strings.TrimSpace(key))
-	})
+// AddRiotKey checks a key with Riot and saves it after the existing ones.
+// A key Riot rejects is not saved. If Riot cannot be reached, the key is
+// saved anyway and the returned note says it was not checked.
+func (a *App) AddRiotKey(label, value string) (string, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+	defer cancel()
+	checkErr := api.CheckKey(ctx, strings.TrimSpace(value), "euw1")
+	if errors.Is(checkErr, core.ErrKeyRejected) {
+		return "", fmt.Errorf("Riot rejected this key: it is expired or mistyped")
+	}
+	_, err := withStore(a, func(s *core.Store) (struct{}, error) { return struct{}{}, s.AddRiotKey(label, value) })
+	if err != nil || checkErr == nil {
+		return "", err
+	}
+	return "Saved without checking: " + checkErr.Error(), nil
+}
+
+func (a *App) RemoveRiotKey(id int64) error {
+	_, err := withStore(a, func(s *core.Store) (struct{}, error) { return struct{}{}, s.RemoveRiotKey(id) })
 	return err
 }
 

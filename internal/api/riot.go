@@ -9,19 +9,53 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"matchup-lookup/internal/core"
 )
 
+// RiotClient calls the Riot API with the first usable key. When Riot rejects
+// it (401/403), onRejected is told once and the request is retried with the
+// next key; with none left, every call fails fast with core.ErrKeyRejected.
+// Keys are fallbacks, never used together: Riot forbids pooling them.
 type RiotClient struct {
-	key   string
-	http  *http.Client
-	limit rateLimiter
+	http       *http.Client
+	limit      rateLimiter
+	onRejected func(key core.APIKey, reason string)
+
+	mu      sync.Mutex
+	keys    []core.APIKey
+	current int
 }
 
-func NewRiotClient(key string) *RiotClient {
-	return &RiotClient{key: key, http: &http.Client{Timeout: 25 * time.Second}}
+func NewRiotClient(keys []core.APIKey, onRejected func(key core.APIKey, reason string)) *RiotClient {
+	return &RiotClient{keys: keys, onRejected: onRejected, http: &http.Client{Timeout: 25 * time.Second}}
+}
+
+// key returns the key to use and its position, or ok=false when every key
+// has been rejected.
+func (c *RiotClient) key() (key core.APIKey, index int, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.current >= len(c.keys) {
+		return core.APIKey{}, c.current, false
+	}
+	return c.keys[c.current], c.current, true
+}
+
+// reject moves past the key at index; parallel requests that were rejected
+// with the same key report it only once.
+func (c *RiotClient) reject(index int, reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if index != c.current {
+		return
+	}
+	c.current++
+	if c.onRejected != nil {
+		c.onRejected(c.keys[index], reason)
+	}
 }
 
 // ReportWaits sends rate-limit and Retry-After waits of 2s or more to fn;
@@ -33,6 +67,10 @@ func (c *RiotClient) ReportWaits(fn func(until time.Time, reason string)) {
 func (c *RiotClient) get(ctx context.Context, host, path string, dst any) error {
 	u := "https://" + host + ".api.riotgames.com" + path
 	for attempt := 0; attempt < 6; attempt++ {
+		key, index, ok := c.key()
+		if !ok {
+			return core.ErrKeyRejected
+		}
 		if err := c.limit.wait(ctx); err != nil {
 			return err
 		}
@@ -40,7 +78,7 @@ func (c *RiotClient) get(ctx context.Context, host, path string, dst any) error 
 		if err != nil {
 			return err
 		}
-		req.Header.Set("X-Riot-Token", c.key)
+		req.Header.Set("X-Riot-Token", key.Value)
 		resp, err := c.http.Do(req)
 		if err != nil {
 			return err
@@ -51,6 +89,11 @@ func (c *RiotClient) get(ctx context.Context, host, path string, dst any) error 
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
 		resp.Body.Close()
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			c.reject(index, fmt.Sprintf("HTTP %d on %s", resp.StatusCode, time.Now().Format("2006-01-02 15:04")))
+			attempt-- // a rejected key is not a failed attempt; retry with the next one
+			continue
+		}
 		if resp.StatusCode != 429 && (resp.StatusCode < 500 || resp.StatusCode > 599) {
 			return fmt.Errorf("Riot HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
@@ -139,4 +182,13 @@ func (c *RiotClient) Match(ctx context.Context, platform, id string) (core.Match
 	}
 	m.Raw = raw
 	return m, nil
+}
+
+// CheckKey asks Riot whether a key is accepted, using the cheap status
+// endpoint of platform. A rejected key yields core.ErrKeyRejected; network
+// problems are returned as they are.
+func CheckKey(ctx context.Context, value, platform string) error {
+	client := NewRiotClient([]core.APIKey{{Value: value}}, nil)
+	var status json.RawMessage
+	return client.get(ctx, strings.ToLower(platform), "/lol/status/v4/platform-data", &status)
 }

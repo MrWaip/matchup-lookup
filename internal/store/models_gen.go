@@ -92,6 +92,15 @@ type PlayerSeed struct {
 	ResolvedPuuid string
 }
 
+type RiotKey struct {
+	ID         int64
+	Label      string
+	Value      string
+	AddedAt    int64
+	RejectedAt int64
+	Rejection  string
+}
+
 type TrackedGame struct {
 	MatchID            string
 	PlayerPuuid        string

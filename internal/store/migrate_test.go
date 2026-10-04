@@ -32,6 +32,7 @@ func createV2Database(t *testing.T, path string, raw string) {
          VALUES ('EUW1_1', 'fiora', 'FioraPlayer', 'EUW', 'DIAMOND', 'I', 'Fiora', 'darius', 'Darius',
            'TOP', 'TOP', 'confirmed', 1, 8, 2, 5, 210, 0, 0, 0, 0, 0, 0, 0, 0)`,
 		`INSERT INTO match_checks VALUES ('EUW1_1', 'fiora')`,
+		`INSERT INTO app_settings VALUES ('riot_api_key', 'RGAPI-old-key')`,
 		`PRAGMA user_version=2`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
@@ -91,6 +92,11 @@ func TestOpenMigratesV2Database(t *testing.T) {
 	opponentSide, err := q.SearchGames(ctx, SearchGamesParams{Champion: "Darius"})
 	if err != nil || len(opponentSide) != 1 || opponentSide[0].Win || opponentSide[0].Keystone.Int64 != 8010 {
 		t.Fatalf("opponent side after migration: %+v %v", opponentSide, err)
+	}
+
+	keys, err := q.ListRiotKeys(ctx)
+	if err != nil || len(keys) != 1 || keys[0].Value != "RGAPI-old-key" {
+		t.Fatalf("single key moved to riot_keys: %+v %v", keys, err)
 	}
 
 	// Reopening applies nothing and makes no further backup.

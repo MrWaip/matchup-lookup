@@ -118,11 +118,13 @@
     </form>
 
     <section>
-      <h3>Riot API key</h3>
-      <p class="muted" id="key-status"></p>
+      <h3>Riot API keys</h3>
+      <p class="muted">Keys are tried in order: when Riot rejects one (development keys expire after 24 hours), the next takes over. Get keys at developer.riotgames.com.</p>
+      <ul class="keys" id="keys"></ul>
       <form class="row" id="key-form">
+        <input name="label" class="key-label" placeholder="Name, e.g. dev" spellcheck="false">
         <input type="password" name="key" placeholder="RGAPI-…" spellcheck="false" required>
-        <button class="primary">Save key</button>
+        <button class="primary">Add key</button>
       </form>
     </section>
 

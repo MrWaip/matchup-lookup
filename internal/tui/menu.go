@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ var menuOptions = []menuOption{
 	{"Export database for another computer", "db_export"},
 	{"Import database from another computer", "db_import"},
 	{"Show tracked players", "players"},
-	{"Set / replace Riot API key", "key"},
+	{"Riot API keys", "key"},
 	{"Show database location", "path"},
 	{"Exit", "exit"},
 }
@@ -120,6 +121,8 @@ func (m menuModel) View() string {
 		}
 	case state.Cancelled:
 		right.WriteString("Update cancelled\n")
+	case !state.Finished.IsZero() && errors.Is(state.Err, core.ErrKeyRejected):
+		right.WriteString("Riot API key expired or invalid\n\n" + muted.Render("Data so far is saved. Add a new key under Riot API keys."))
 	case !state.Finished.IsZero() && state.Err != nil:
 		right.WriteString("Finished with errors\n\n" + state.Err.Error())
 	case !state.Finished.IsZero():

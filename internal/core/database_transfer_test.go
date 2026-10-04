@@ -13,7 +13,7 @@ func TestExportImportDatabaseOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetRiotKey("RGAPI-test-key"); err != nil {
+	if err := store.AddRiotKey("personal", "RGAPI-test-key"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.QueueSeed(Seed{GameName: "Example", TagLine: "EUW", Region: "euw1", Champion: "Fiora"}); err != nil {
@@ -31,7 +31,7 @@ func TestExportImportDatabaseOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := old.SetRiotKey("old-key"); err != nil {
+	if err := old.AddRiotKey("old", "old-key"); err != nil {
 		t.Fatal(err)
 	}
 	old.Close()
@@ -50,9 +50,9 @@ func TestExportImportDatabaseOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer loaded.Close()
-	key, err := loaded.RiotKey()
-	if err != nil || key != "RGAPI-test-key" {
-		t.Fatalf("imported key: %q %v", key, err)
+	keys, err := loaded.RiotKeys()
+	if err != nil || len(keys) != 1 || keys[0].Value != "RGAPI-test-key" {
+		t.Fatalf("imported keys: %+v %v", keys, err)
 	}
 	pending, err := loaded.PendingSeeds()
 	if err != nil || len(pending) != 1 || pending[0].GameName != "Example" {

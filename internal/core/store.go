@@ -54,18 +54,6 @@ func (s *Store) setSetting(key, value string) error {
 	return s.q.SetSetting(context.Background(), store.SetSettingParams{Key: key, Value: value})
 }
 
-func (s *Store) RiotKey() (string, error) {
-	key, _, err := s.setting("riot_api_key")
-	return key, err
-}
-
-func (s *Store) SetRiotKey(key string) error {
-	if key == "" {
-		return fmt.Errorf("Riot API key cannot be empty")
-	}
-	return s.setSetting("riot_api_key", key)
-}
-
 func (s *Store) SaveFilters(filters Filters) error {
 	data, err := json.Marshal(filters)
 	if err != nil {

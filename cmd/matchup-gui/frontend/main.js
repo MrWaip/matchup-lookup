@@ -2,7 +2,7 @@ import * as api from "./api.js";
 import { championCombobox } from "./combobox.js";
 import { $, h, icon, showError, toast } from "./dom.js";
 
-/** @import { Filters, Game, Overview, SearchResult, UpdateStatus } from "./api.js" */
+/** @import { Filters, Game, Key, Overview, SearchResult, UpdateStatus } from "./api.js" */
 
 const form = $("#filters", HTMLFormElement);
 const regionSelect = $("#region", HTMLSelectElement);
@@ -235,9 +235,11 @@ async function refreshOverview() {
   regionSelect.value = current;
 
   const banner = $("#banner", HTMLElement);
-  const message = !overview.hasKey
+  const message = overview.keys.length === 0
     ? "Add your Riot API key to download matches."
-    : overview.players + overview.pending === 0
+    : !overview.hasUsableKey
+      ? "Riot rejected your API key: it probably expired. Add a new one to keep updating."
+      : overview.players + overview.pending === 0
       ? "Import players to start tracking their matches."
       : "";
   banner.hidden = message === "";
@@ -270,6 +272,9 @@ function renderUpdate(status) {
   } else if (status.cancelled) {
     label.textContent = "Update cancelled";
     detail.textContent = "";
+  } else if (status.keyRejected) {
+    label.textContent = "Riot API key expired or invalid";
+    detail.textContent = "data is saved · add a key in ⚙";
   } else if (status.error) {
     label.textContent = "Update finished with errors";
     detail.textContent = status.error;
@@ -291,6 +296,7 @@ async function pollUpdate() {
     if (wasRunning && !status.running) {
       await refreshOverview();
       await runSearch();
+      if (status.keyRejected) toast("Riot rejected the API key. Add a new key in Settings; nothing fetched so far is lost.", "error");
     }
     wasRunning = status.running;
   } catch (error) {
@@ -310,7 +316,7 @@ updateButton.addEventListener("click", async () => {
     renderUpdate(await api.updateStatus());
   } catch (error) {
     showError(error);
-    if (String(error).includes("API key")) openSettings();
+    if (String(error).includes("key")) openSettings();
   }
 });
 
@@ -324,11 +330,7 @@ async function openSettings() {
 async function renderSettings() {
   try {
     const [overview, players] = await Promise.all([api.overview(), api.players()]);
-    $("#key-status", HTMLElement).textContent = overview.keyFromEnv
-      ? "Using RIOT_API_KEY from the environment; a saved key is used only when it is unset."
-      : overview.hasKey
-        ? "A key is saved. Development keys expire after 24 hours; paste a new one here."
-        : "No key yet. Get one at developer.riotgames.com.";
+    renderKeys(overview.keys);
     const source = $("#import-form input[name=source]", HTMLInputElement);
     source.value ||= overview.playersSource;
     $("#db-path", HTMLElement).textContent = overview.dbPath;
@@ -345,16 +347,43 @@ async function renderSettings() {
 
 $("#settings-button", HTMLButtonElement).addEventListener("click", openSettings);
 
-$("#key-form", HTMLFormElement).addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const keyForm = $("#key-form", HTMLFormElement);
+/** @param {Key[]} keys */
+function renderKeys(keys) {
+  const list = $("#keys", HTMLUListElement);
+  list.replaceChildren(...keys.map((key) => h("li", { className: key.rejected ? "rejected" : "" },
+    h("b", {}, key.label),
+    h("span", { className: "path" }, key.masked),
+    h("span", { className: "key-status" }, key.fromEnv ? "from RIOT_API_KEY" : key.rejected ? `rejected · ${key.rejection}` : "ok"),
+    key.fromEnv ? "" : h("button", { type: "button", className: "link", onclick: () => removeKey(key) }, "Remove"),
+  )));
+  if (keys.length === 0) list.append(h("li", { className: "muted" }, "No keys yet."));
+}
+
+/** @param {Key} key */
+async function removeKey(key) {
   try {
-    await api.setRiotKey(String(new FormData(keyForm).get("key") ?? ""));
-    keyForm.reset();
-    toast("Riot API key saved");
+    await api.removeRiotKey(key.id);
     await Promise.all([renderSettings(), refreshOverview()]);
   } catch (error) {
     showError(error);
+  }
+}
+
+$("#key-form", HTMLFormElement).addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const keyForm = $("#key-form", HTMLFormElement);
+  const button = $("#key-form button", HTMLButtonElement);
+  const data = new FormData(keyForm);
+  button.disabled = true;
+  try {
+    const note = await api.addRiotKey(String(data.get("label") ?? ""), String(data.get("key") ?? ""));
+    keyForm.reset();
+    toast(note || "Key checked with Riot and saved");
+    await Promise.all([renderSettings(), refreshOverview()]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    button.disabled = false;
   }
 });
 

@@ -10,11 +10,21 @@
  */
 
 /**
+ * @typedef {object} Key
+ * @property {number} id 0 for the RIOT_API_KEY environment key
+ * @property {string} label
+ * @property {string} masked e.g. "RGAPI-…1a2b"
+ * @property {boolean} fromEnv
+ * @property {boolean} rejected Riot answered 401/403: expired, revoked or mistyped
+ * @property {string} rejection when and how Riot rejected it
+ */
+
+/**
  * @typedef {object} Overview
  * @property {string} version build date and commit, e.g. "2026-10-04 dbd759c"
  * @property {string} dbPath
- * @property {boolean} hasKey
- * @property {boolean} keyFromEnv
+ * @property {Key[]} keys Riot API keys in the order they are tried
+ * @property {boolean} hasUsableKey
  * @property {number} players
  * @property {number} pending
  * @property {Server[]} servers every supported server, most populated first
@@ -82,6 +92,7 @@
  * @property {boolean} cancelled
  * @property {boolean} finished
  * @property {string} error
+ * @property {boolean} keyRejected the update stopped because Riot rejected every key
  * @property {number} percent
  * @property {number} resolved
  * @property {number} resolveTotal
@@ -111,7 +122,8 @@
  * @property {() => Promise<UpdateStatus>} UpdateStatus
  * @property {() => Promise<void>} StartUpdate
  * @property {() => Promise<void>} CancelUpdate
- * @property {(key: string) => Promise<void>} SetRiotKey
+ * @property {(label: string, value: string) => Promise<string>} AddRiotKey resolves to a note when the key could not be checked
+ * @property {(id: number) => Promise<void>} RemoveRiotKey
  * @property {(source: string) => Promise<number>} ImportPlayers
  * @property {() => Promise<PlayerRow[]>} Players
  * @property {(matchId: string) => Promise<void>} OpenReplay
@@ -131,8 +143,10 @@ export const champions = (query, limit) => app().Champions(query, limit);
 export const updateStatus = () => app().UpdateStatus();
 export const startUpdate = () => app().StartUpdate();
 export const cancelUpdate = () => app().CancelUpdate();
-/** @param {string} key */
-export const setRiotKey = (key) => app().SetRiotKey(key);
+/** @param {string} label @param {string} value */
+export const addRiotKey = (label, value) => app().AddRiotKey(label, value);
+/** @param {number} id */
+export const removeRiotKey = (id) => app().RemoveRiotKey(id);
 /** @param {string} source */
 export const importPlayers = (source) => app().ImportPlayers(source);
 export const players = () => app().Players();

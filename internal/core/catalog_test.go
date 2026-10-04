@@ -9,27 +9,6 @@ import (
 	"testing"
 )
 
-func TestStoredKeySurvivesRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "matches.db")
-	s, err := OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetRiotKey("test-key"); err != nil {
-		t.Fatal(err)
-	}
-	s.Close()
-	s, err = OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	key, err := s.RiotKey()
-	if err != nil || key != "test-key" {
-		t.Fatalf("stored key: %q %v", key, err)
-	}
-}
-
 func TestChampionCatalogCachedAndFuzzy(t *testing.T) {
 	s, err := OpenStore(filepath.Join(t.TempDir(), "matches.db"))
 	if err != nil {

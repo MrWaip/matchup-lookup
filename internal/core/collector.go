@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -134,6 +135,9 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter Upda
 			return ctx.Err()
 		}
 		rank, err := api.Rank(ctx, player.Region, player.PUUID)
+		if errors.Is(err, ErrKeyRejected) {
+			return err
+		}
 		if err != nil {
 			progress.logf("[WARN] Rank %s#%s: %v", player.GameName, player.TagLine, err)
 			failures++
@@ -145,6 +149,9 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter Upda
 			return err
 		}
 		ids, err := api.Recent(ctx, player.Region, player.PUUID)
+		if errors.Is(err, ErrKeyRejected) {
+			return err
+		}
 		if err != nil {
 			progress.logf("[ERROR] Match list %s#%s: %v", player.GameName, player.TagLine, err)
 			failures++
@@ -211,6 +218,9 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter Upda
 		}
 		if needs {
 			match, err := api.Match(ctx, ref.Platform, ref.ID)
+			if errors.Is(err, ErrKeyRejected) {
+				return err
+			}
 			if err != nil {
 				progress.logf("[ERROR] Refresh loadout %s: %v", ref.ID, err)
 				failures++
@@ -244,6 +254,10 @@ func resolvePending(ctx context.Context, store *Store, api RiotAPI, pending []Se
 					return
 				}
 				account, err := api.Resolve(ctx, seed)
+				if errors.Is(err, ErrKeyRejected) {
+					outcomes <- matchOutcome{err: err}
+					continue
+				}
 				if err != nil {
 					progress.logf("[ERROR] Resolve %s#%s: %v", seed.GameName, seed.TagLine, err)
 					outcomes <- matchOutcome{apiFailure: true}
@@ -306,6 +320,9 @@ func collectMatch(ctx context.Context, store *Store, api RiotAPI, player Player,
 	}
 	if !cached || needsLoadout {
 		m, err = api.Match(ctx, player.Region, id)
+		if errors.Is(err, ErrKeyRejected) {
+			return false, err
+		}
 		if err != nil {
 			progress.logf("[ERROR] %s: %v", id, err)
 			return true, nil

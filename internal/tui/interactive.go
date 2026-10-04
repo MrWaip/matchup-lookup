@@ -42,7 +42,7 @@ func RunInteractive(path string) error {
 		case "players":
 			err = PrintPlayers(store)
 		case "key":
-			err = promptRiotKey(store)
+			err = manageRiotKeys(store)
 		case "find":
 			selectionShown, err = interactiveFind(store)
 		case "repeat":
@@ -50,10 +50,12 @@ func RunInteractive(path string) error {
 		case "import":
 			err = interactiveImport(store)
 		case "update":
-			var key string
-			key, err = interactiveKey(store)
+			var keys []core.APIKey
+			keys, err = interactiveKeys(store)
 			if err == nil {
-				err = background.Start(api.NewRiotClient(key))
+				err = background.Start(api.NewRiotClient(keys, func(key core.APIKey, reason string) {
+					_ = store.MarkKeyRejected(key, reason) // best effort: rejected again next run
+				}))
 				if err == nil {
 					fmt.Println("Update started in background. You can search while it runs.")
 				}
@@ -149,30 +151,98 @@ func PrintPlayers(store *core.Store) error {
 	return nil
 }
 
-func interactiveKey(store *core.Store) (string, error) {
-	key, err := core.ConfiguredRiotKey(store)
-	if err != nil || key != "" {
-		return key, err
+// interactiveKeys returns the usable keys, asking for a new one when there
+// is none or Riot rejected all saved keys.
+func interactiveKeys(store *core.Store) ([]core.APIKey, error) {
+	keys, err := store.UsableRiotKeys()
+	if err == nil {
+		return keys, nil
 	}
-	if err := promptRiotKey(store); err != nil {
-		return "", err
+	fmt.Println(err)
+	if err := promptNewKey(store); err != nil {
+		return nil, err
 	}
-	return store.RiotKey()
+	return store.UsableRiotKeys()
 }
 
-func promptRiotKey(store *core.Store) error {
-	var key string
-	err := huh.NewInput().Title("Riot API key (saved locally in SQLite)").EchoMode(huh.EchoModePassword).Value(&key).Run()
+// manageRiotKeys lists the keys in the order they are tried and lets the
+// user add or remove one.
+func manageRiotKeys(store *core.Store) error {
+	keys, err := store.RiotKeys()
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(key) == "" {
-		return fmt.Errorf("Riot API key is required")
+	fmt.Println("Riot API keys, tried in this order (the next one takes over when Riot rejects a key):")
+	if len(keys) == 0 {
+		fmt.Println("  none yet")
 	}
-	if err := store.SetRiotKey(strings.TrimSpace(key)); err != nil {
+	for _, key := range keys {
+		status := "ok"
+		switch {
+		case key.FromEnv:
+			status = "from RIOT_API_KEY"
+		case !key.Usable():
+			status = "rejected by Riot (" + key.Rejection + ")"
+		}
+		fmt.Printf("  %s  %s  %s\n", key.Label, key.Masked(), status)
+	}
+	action := "add"
+	options := []huh.Option[string]{huh.NewOption("Add a key", "add")}
+	for _, key := range keys {
+		if !key.FromEnv {
+			options = append(options, huh.NewOption("Remove "+key.Label+" "+key.Masked(), strconv.FormatInt(key.ID, 10)))
+		}
+	}
+	options = append(options, huh.NewOption("Back", "back"))
+	if err := huh.NewSelect[string]().Title("Riot API keys").Options(options...).Value(&action).Run(); err != nil {
 		return err
 	}
-	fmt.Println("Riot API key saved in the local database.")
+	switch action {
+	case "back":
+		return nil
+	case "add":
+		return promptNewKey(store)
+	}
+	id, err := strconv.ParseInt(action, 10, 64)
+	if err != nil {
+		return err
+	}
+	if err := store.RemoveRiotKey(id); err != nil {
+		return err
+	}
+	fmt.Println("Key removed.")
+	return nil
+}
+
+// promptNewKey asks for a key, checks it with Riot and saves it. A key Riot
+// rejects is not saved; without network the key is saved unchecked.
+func promptNewKey(store *core.Store) error {
+	var label, value string
+	err := huh.NewForm(huh.NewGroup(
+		huh.NewInput().Title("Name (e.g. personal, dev)").Value(&label),
+		huh.NewInput().Title("Riot API key (saved locally in SQLite)").EchoMode(huh.EchoModePassword).Value(&value),
+	)).Run()
+	if err != nil {
+		return err
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("Riot API key is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	checkErr := api.CheckKey(ctx, value, "euw1")
+	if errors.Is(checkErr, core.ErrKeyRejected) {
+		return fmt.Errorf("Riot rejected this key: it is expired or mistyped")
+	}
+	if err := store.AddRiotKey(label, value); err != nil {
+		return err
+	}
+	if checkErr != nil {
+		fmt.Println("Key saved without checking:", checkErr)
+		return nil
+	}
+	fmt.Println("Key checked with Riot and saved.")
 	return nil
 }
 
