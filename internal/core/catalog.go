@@ -83,12 +83,9 @@ func EnsureChampions(ctx context.Context, s *Store) ([]Champion, error) {
 }
 
 func fetchChampions(ctx context.Context) ([]Champion, error) {
-	var versions []string
-	if err := catalogGET(ctx, "https://ddragon.leagueoflegends.com/api/versions.json", &versions); err != nil {
+	version, err := fetchLiveVersion(ctx)
+	if err != nil {
 		return nil, err
-	}
-	if len(versions) == 0 {
-		return nil, fmt.Errorf("Data Dragon returned no versions")
 	}
 	var payload struct {
 		Data map[string]struct {
@@ -96,7 +93,7 @@ func fetchChampions(ctx context.Context) ([]Champion, error) {
 			Name string `json:"name"`
 		} `json:"data"`
 	}
-	address := "https://ddragon.leagueoflegends.com/cdn/" + url.PathEscape(versions[0]) + "/data/en_US/champion.json"
+	address := "https://ddragon.leagueoflegends.com/cdn/" + url.PathEscape(version) + "/data/en_US/champion.json"
 	if err := catalogGET(ctx, address, &payload); err != nil {
 		return nil, err
 	}

@@ -2,7 +2,8 @@
 -- Every tracked game is searchable from both sides: the tracked player's and,
 -- unless the opponent is tracked too, the lane opponent's (listed second). The opponent's rank
 -- is known only when the opponent is a tracked player. Empty/zero parameters
--- disable their filter. Results are newest first.
+-- disable their filter; the application always passes the current patch.
+-- Results are newest first.
 WITH perspectives AS (
     SELECT g.match_id, g.player_puuid, g.opponent_puuid,
            g.player_rank_tier AS rank_tier, g.player_rank_division AS rank_division,
@@ -43,7 +44,6 @@ WHERE (CAST(@region AS TEXT) = '' OR m.platform = @region COLLATE NOCASE)
   AND (CAST(@min_rank AS INTEGER) = 0 OR CASE UPPER(g.rank_tier)
         WHEN 'EMERALD' THEN 1 WHEN 'DIAMOND' THEN 2 WHEN 'MASTER' THEN 3
         WHEN 'GRANDMASTER' THEN 4 WHEN 'CHALLENGER' THEN 5 ELSE 0 END >= @min_rank)
-  AND m.game_creation >= @created_since
   AND m.game_duration >= @min_duration
   AND (CAST(@patch_major AS INTEGER) = 0 OR (m.patch_major = @patch_major AND m.patch_minor = @patch_minor))
   AND (CAST(@player AS TEXT) = '' OR me.riot_id_game_name = @player COLLATE NOCASE

@@ -6,7 +6,6 @@ import { $, h, showError, toast } from "./dom.js";
 
 const form = $("#filters", HTMLFormElement);
 const regionSelect = $("#region", HTMLSelectElement);
-const daysSelect = $("select[name=days]", HTMLSelectElement);
 const gamesBody = $("#games", HTMLTableSectionElement);
 const tableWrap = $("#table-wrap", HTMLElement);
 const details = $("#details", HTMLElement);
@@ -39,7 +38,6 @@ function readFilters() {
     result: text("result"),
     kda: text("kda"),
     rank: text("rank"),
-    days: Number(text("days")),
     minMinutes: Number(text("minMinutes")),
     player: text("player"),
   };
@@ -55,11 +53,6 @@ function applyFilters(filters) {
   }
   $("select[name=kda]", HTMLSelectElement).value = filters.kda || "any";
   $("select[name=rank]", HTMLSelectElement).value = filters.rank || "any";
-  const days = String(filters.days);
-  if (![...daysSelect.options].some((option) => option.value === days)) {
-    daysSelect.add(h("option", { value: days }, `Last ${days} days`));
-  }
-  daysSelect.value = days;
   $("input[name=minMinutes]", HTMLInputElement).value = filters.minMinutes > 0 ? String(filters.minMinutes) : "";
   $("input[name=player]", HTMLInputElement).value = filters.player;
   $("details.more", HTMLDetailsElement).open = filters.minMinutes > 0 || filters.player !== "";
@@ -90,7 +83,7 @@ async function runSearch() {
     if (request !== searchRequest) return;
     games = result.games;
     renderSummary(result);
-    renderGames();
+    renderGames(result);
     select(Math.max(0, games.findIndex((game) => game.matchId === previous)));
   } catch (error) {
     showError(error);
@@ -98,21 +91,23 @@ async function runSearch() {
 }
 
 /** @param {SearchResult} result */
-function renderSummary({ matching, wins, players, stored, games }) {
+function renderSummary({ matching, wins, players, stored, games, patch }) {
   const losses = matching - wins;
   const rate = matching > 0 ? Math.round((wins / matching) * 100) : 0;
   const parts = [
+    h("span", { className: "patch", title: "Only the current patch is searched: replays of older patches can no longer be opened." }, patch ? `Patch ${patch}` : "Patch unknown"),
     h("strong", {}, `${matching} ${matching === 1 ? "match" : "matches"}`),
     h("span", { className: "win" }, `${wins} W`),
     h("span", { className: "loss" }, `${losses} L`),
     h("span", {}, matching > 0 ? `${rate}% win rate` : "—"),
-    h("span", { className: "muted" }, `${players} players · ${stored} stored games`),
+    h("span", { className: "muted" }, `${players} players · ${stored} games this patch`),
   ];
   if (games.length < matching) parts.push(h("span", { className: "muted" }, `showing newest ${games.length}`));
   $("#summary", HTMLElement).replaceChildren(...parts);
 }
 
-function renderGames() {
+/** @param {SearchResult} result */
+function renderGames({ stored, patch }) {
   gamesBody.replaceChildren(...games.map((game, index) => h("tr", {
     onclick: () => select(index),
     ondblclick: () => launchReplay(game),
@@ -130,7 +125,9 @@ function renderGames() {
   empty.hidden = games.length > 0;
   empty.textContent = currentOverview?.players === 0
     ? "No tracked players yet. Import players in Settings, then update matches."
-    : "No games match these filters. Try a longer date range or fewer filters.";
+    : stored === 0
+      ? `No games of patch ${patch || "the current patch"} stored yet. Run Update matches to fetch them.`
+      : "No games match these filters. Try fewer filters or a broader rank.";
 }
 
 /** @param {number} index */
@@ -222,7 +219,8 @@ async function refreshOverview() {
   const current = regionSelect.value;
   regionSelect.replaceChildren(
     h("option", { value: "" }, "Any server"),
-    ...overview.regions.map((region) => h("option", { value: region.id }, region.label)),
+    ...overview.servers.map((server) => h("option", { value: server.id },
+      server.players > 0 ? `${server.label} · ${server.players} players` : server.label)),
   );
   regionSelect.value = current;
 

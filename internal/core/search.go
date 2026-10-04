@@ -10,18 +10,28 @@ import (
 	"matchup-lookup/internal/store"
 )
 
+// Filters narrow a search within the current patch. They are saved as JSON
+// with Go field names; fields of older versions (Days, Patch) are ignored.
 type Filters struct {
 	Champion   string
 	Opponent   string
 	Result     string
 	KDACompare string
 	Rank       string
-	Days       int
 	MinMinutes int
-	Patch      string
 	Player     string
 	Region     string
 	Limit      int
+}
+
+// SearchResult is one page of matches plus counts over all of them.
+type SearchResult struct {
+	Results  []Result // newest first, at most Filters.Limit
+	Patch    Patch    // the current patch searched; zero if nothing is known yet
+	Players  int      // tracked players
+	Stored   int      // tracked games of the current patch
+	Matching int
+	Wins     int
 }
 
 type Result struct {
@@ -51,13 +61,19 @@ func rankThreshold(tier string) (int, error) {
 	}
 }
 
-func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
+// Search finds matches of the current patch, the only ones whose replays can
+// still be opened, from both sides of each tracked game.
+func Search(s *Store, f Filters) (SearchResult, error) {
 	threshold, err := rankThreshold(f.Rank)
 	if err != nil {
-		return nil, 0, 0, 0, 0, err
+		return SearchResult{}, err
 	}
-	if f.Days < 0 || f.MinMinutes < 0 || f.Limit < 1 {
-		return nil, 0, 0, 0, 0, fmt.Errorf("days/minutes must be nonnegative; limit must be positive")
+	if f.MinMinutes < 0 || f.Limit < 1 {
+		return SearchResult{}, fmt.Errorf("minutes must be nonnegative; limit must be positive")
+	}
+	patch, err := s.CurrentPatch()
+	if err != nil {
+		return SearchResult{}, err
 	}
 	params := store.SearchGamesParams{
 		Region:      strings.ToLower(f.Region),
@@ -66,58 +82,47 @@ func Search(s *Store, f Filters) ([]Result, int, int, int, int, error) {
 		MinRank:     int64(threshold),
 		MinDuration: int64(f.MinMinutes) * 60,
 		Player:      f.Player,
+		PatchMajor:  patch.Major,
+		PatchMinor:  patch.Minor,
 	}
 	switch kda := strings.ToLower(f.KDACompare); kda {
 	case "", "any":
 	case "ge", "gt":
 		params.Kda = kda
 	default:
-		return nil, 0, 0, 0, 0, fmt.Errorf("KDA comparison must be any, ge, or gt")
+		return SearchResult{}, fmt.Errorf("KDA comparison must be any, ge, or gt")
 	}
 	switch result := strings.ToLower(f.Result); result {
 	case "", "any":
 	case "win", "loss":
 		params.Result = result
 	default:
-		return nil, 0, 0, 0, 0, fmt.Errorf("result must be any, win, or loss")
-	}
-	if f.Days > 0 {
-		params.CreatedSince = time.Now().AddDate(0, 0, -f.Days).UnixMilli()
-	}
-	if f.Patch != "" {
-		params.PatchMajor, params.PatchMinor = store.ParsePatch(rawPatch(f.Patch))
-		if params.PatchMajor == 0 {
-			return nil, 0, 0, 0, 0, fmt.Errorf("patch must look like 26.19")
-		}
+		return SearchResult{}, fmt.Errorf("result must be any, win, or loss")
 	}
 	ctx := context.Background()
 	players, err := s.q.CountPlayers(ctx)
 	if err != nil {
-		return nil, 0, 0, 0, 0, err
+		return SearchResult{}, err
 	}
-	total, err := s.q.CountTrackedGames(ctx)
+	stored, err := s.q.CountTrackedGamesInPatch(ctx, store.CountTrackedGamesInPatchParams{
+		PatchMajor: patch.Major, PatchMinor: patch.Minor})
 	if err != nil {
-		return nil, 0, 0, 0, 0, err
+		return SearchResult{}, err
 	}
 	rows, err := s.q.SearchGames(ctx, params)
 	if err != nil {
-		return nil, 0, 0, 0, 0, err
+		return SearchResult{}, err
 	}
-	wins := 0
+	out := SearchResult{Patch: patch, Players: int(players), Stored: int(stored), Matching: len(rows)}
 	for _, r := range rows {
 		if r.Win {
-			wins++
+			out.Wins++
 		}
 	}
-	matching := len(rows)
-	if len(rows) > f.Limit {
-		rows = rows[:f.Limit]
+	for _, r := range rows[:min(len(rows), f.Limit)] {
+		out.Results = append(out.Results, resultFromRow(r))
 	}
-	out := make([]Result, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, resultFromRow(r))
-	}
-	return out, int(players), int(total), matching, wins, nil
+	return out, nil
 }
 
 func resultFromRow(r store.SearchGamesRow) Result {
@@ -154,20 +159,7 @@ func resultFromRow(r store.SearchGamesRow) Result {
 }
 
 // Riot's 2026 API version is 16.x while its player-facing patch name is 26.x.
-// Keep the raw version in SQLite and accept either name in the patch filter.
-func rawPatch(patch string) string {
-	parts := strings.Split(patch, ".")
-	if len(parts) < 2 {
-		return patch
-	}
-	major, err := strconv.Atoi(parts[0])
-	if err != nil || major < 25 || major > 39 {
-		return patch
-	}
-	parts[0] = strconv.Itoa(major - 10)
-	return strings.Join(parts, ".")
-}
-
+// SQLite keeps the raw version; only display uses the player-facing name.
 func displayPatch(version string) string {
 	parts := strings.Split(version, ".")
 	if len(parts) < 2 {

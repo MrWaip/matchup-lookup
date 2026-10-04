@@ -22,3 +22,14 @@ func TestRegionalRoutes(t *testing.T) {
 		t.Fatal("unknown platform accepted")
 	}
 }
+
+func TestEveryPlatformIsRouted(t *testing.T) {
+	for _, platform := range Platforms {
+		if _, err := RegionalRoute(platform); err != nil {
+			t.Error(err)
+		}
+	}
+	if len(Platforms) != len(matchRoutes) {
+		t.Fatalf("Platforms has %d entries, matchRoutes %d", len(Platforms), len(matchRoutes))
+	}
+}

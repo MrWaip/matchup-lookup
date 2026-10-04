@@ -3,9 +3,10 @@
 // error message.
 
 /**
- * @typedef {object} Region
+ * @typedef {object} Server
  * @property {string} id platform such as "euw1"
  * @property {string} label display name such as "EUW"
+ * @property {number} players tracked players on this server
  */
 
 /**
@@ -15,7 +16,7 @@
  * @property {boolean} keyFromEnv
  * @property {number} players
  * @property {number} pending
- * @property {Region[]} regions
+ * @property {Server[]} servers every supported server, most populated first
  * @property {string} playersSource
  */
 
@@ -27,7 +28,6 @@
  * @property {string} result "any", "win" or "loss"
  * @property {string} kda "any", "ge" (at least the opponent's KDA) or "gt" (better)
  * @property {string} rank "any" or the lowest tier, e.g. "diamond"
- * @property {number} days 0 means all stored matches
  * @property {number} minMinutes
  * @property {string} player
  */
@@ -56,8 +56,9 @@
 /**
  * @typedef {object} SearchResult
  * @property {Game[]} games newest first, at most 500
+ * @property {string} patch current patch, e.g. "26.19"; "" before any data
  * @property {number} players
- * @property {number} stored
+ * @property {number} stored tracked games of the current patch
  * @property {number} matching
  * @property {number} wins
  */

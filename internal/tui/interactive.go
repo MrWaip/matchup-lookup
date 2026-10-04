@@ -193,21 +193,25 @@ func interactiveFind(store *core.Store) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	regions, err := store.ListRegions()
+	servers, err := store.Servers()
 	if err != nil {
 		return false, err
 	}
 	regionOptions := []huh.Option[string]{huh.NewOption("Any server", "")}
-	for _, platform := range regions {
-		regionOptions = append(regionOptions, huh.NewOption(core.PlatformLabel(platform)+" ("+platform+")", platform))
+	for _, server := range servers {
+		label := server.Label
+		if server.Players > 0 {
+			label += fmt.Sprintf(" · %d players", server.Players)
+		}
+		regionOptions = append(regionOptions, huh.NewOption(label, server.Platform))
 	}
+	_ = core.RefreshLivePatch(context.Background(), store) // offline: use the last known patch
 	catalog, err := core.EnsureChampions(context.Background(), store)
 	if err != nil {
 		fmt.Println("Champion catalog unavailable; enter champion names manually:", err)
 	}
 	result, rank, kda := f.Result, f.Rank, f.KDACompare
-	days := f.Days
-	advanced := f.MinMinutes > 0 || f.Patch != "" || f.Player != ""
+	advanced := f.MinMinutes > 0 || f.Player != ""
 	steps := []func() error{
 		func() error {
 			return huh.NewSelect[string]().Title("Server").Options(regionOptions...).Value(&f.Region).Run()
@@ -244,10 +248,6 @@ func interactiveFind(store *core.Store) (bool, error) {
 					huh.NewOption("Any", "any"), huh.NewOption("Emerald+", "emerald"), huh.NewOption("Diamond+", "diamond"),
 					huh.NewOption("Master+", "master"), huh.NewOption("Grandmaster+", "grandmaster"), huh.NewOption("Challenger", "challenger"),
 				).Value(&rank),
-				huh.NewSelect[int]().Title("Date").Options(
-					huh.NewOption("Last 1 day", 1), huh.NewOption("Last 3 days", 3), huh.NewOption("Last 7 days", 7),
-					huh.NewOption("Last 14 days", 14), huh.NewOption("Last 30 days", 30), huh.NewOption("All stored", 0),
-				).Value(&days),
 			)).Run()
 		},
 		func() error {
@@ -259,19 +259,18 @@ func interactiveFind(store *core.Store) (bool, error) {
 			if !advanced {
 				return nil
 			}
-			minutes, patch, player := "", f.Patch, f.Player
+			minutes, player := "", f.Player
 			if f.MinMinutes > 0 {
 				minutes = strconv.Itoa(f.MinMinutes)
 			}
 			err := huh.NewForm(huh.NewGroup(
 				huh.NewInput().Title("Minimum game duration (minutes; empty = any)").Value(&minutes),
-				huh.NewInput().Title("Patch (empty = any)").Placeholder("16.19").Value(&patch),
 				huh.NewInput().Title("Player name / PUUID (empty = any)").Value(&player),
 			)).Run()
 			if err != nil {
 				return err
 			}
-			f.Patch, f.Player = strings.TrimSpace(patch), strings.TrimSpace(player)
+			f.Player = strings.TrimSpace(player)
 			f.MinMinutes = 0
 			if strings.TrimSpace(minutes) != "" {
 				f.MinMinutes, err = strconv.Atoi(strings.TrimSpace(minutes))
@@ -287,19 +286,19 @@ func interactiveFind(store *core.Store) (bool, error) {
 		return false, err
 	}
 	f.Champion, f.Opponent = strings.TrimSpace(f.Champion), strings.TrimSpace(f.Opponent)
-	f.Result, f.KDACompare, f.Rank, f.Days = result, kda, rank, days
+	f.Result, f.KDACompare, f.Rank = result, kda, rank
 	if !advanced {
-		f.MinMinutes, f.Patch, f.Player = 0, "", ""
+		f.MinMinutes, f.Player = 0, ""
 	}
-	rows, players, total, matching, wins, err := core.Search(store, f)
+	found, err := core.Search(store, f)
 	if err != nil {
 		return false, err
 	}
 	if err := store.SaveFilters(f); err != nil {
 		return false, err
 	}
-	printInteractiveSearchSummary(rows, players, total, matching, wins)
-	return len(rows) > 0, promptOpenReplay(rows)
+	printInteractiveSearchSummary(found)
+	return len(found.Results) > 0, promptOpenReplay(found.Results)
 }
 
 func repeatLastSearch(store *core.Store) (bool, error) {
@@ -310,12 +309,12 @@ func repeatLastSearch(store *core.Store) (bool, error) {
 	if !found {
 		return false, fmt.Errorf("no saved search yet; use Find matchups first")
 	}
-	rows, players, total, matching, wins, err := core.Search(store, filters)
+	result, err := core.Search(store, filters)
 	if err != nil {
 		return false, err
 	}
-	printInteractiveSearchSummary(rows, players, total, matching, wins)
-	return len(rows) > 0, promptOpenReplay(rows)
+	printInteractiveSearchSummary(result)
+	return len(result.Results) > 0, promptOpenReplay(result.Results)
 }
 
 func promptOpenReplay(rows []core.Result) error {
@@ -355,11 +354,11 @@ func promptOpenReplay(rows []core.Result) error {
 	}
 }
 
-func printInteractiveSearchSummary(rows []core.Result, players, total, matching, wins int) {
-	if len(rows) == 0 {
-		PrintResults(rows, players, total, matching, wins)
+func printInteractiveSearchSummary(r core.SearchResult) {
+	if len(r.Results) == 0 {
+		PrintResults(r)
 		return
 	}
-	fmt.Printf("Players %d · Stored %d · Matching %d · Wins %d · Losses %d\n", players, total, matching, wins, matching-wins)
-	fmt.Printf("Showing %d most recent matches. Choose one to see spells, runes, and replay options.\n\n", len(rows))
+	fmt.Printf("Patch %s · Players %d · Stored %d · Matching %d · Wins %d · Losses %d\n", r.Patch, r.Players, r.Stored, r.Matching, r.Wins, r.Matching-r.Wins)
+	fmt.Printf("Showing %d most recent matches. Choose one to see spells, runes, and replay options.\n\n", len(r.Results))
 }

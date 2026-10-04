@@ -85,9 +85,7 @@ func run() error {
 		flags.StringVar(&f.Result, "result", "any", "any, win, loss")
 		flags.StringVar(&f.KDACompare, "kda", "any", "any, ge (>= opponent), gt (> opponent)")
 		flags.StringVar(&f.Rank, "rank", "any", "any, emerald, diamond, master, grandmaster, challenger")
-		flags.IntVar(&f.Days, "days", 7, "last N days; 0 means all stored")
 		flags.IntVar(&f.MinMinutes, "min-minutes", 0, "minimum game duration")
-		flags.StringVar(&f.Patch, "patch", "", "patch, e.g. 16.19")
 		flags.StringVar(&f.Player, "player", "", "tracked player game name or PUUID")
 		flags.StringVar(&f.Region, "region", "", "platform (euw1, na1, etc.); empty = any")
 		flags.IntVar(&f.Limit, "limit", 100, "maximum rows shown")
@@ -99,14 +97,15 @@ func run() error {
 			return err
 		}
 		defer store.Close()
-		rows, players, total, matches, wins, err := core.Search(store, f)
+		_ = core.RefreshLivePatch(context.Background(), store) // offline: use the last known patch
+		result, err := core.Search(store, f)
 		if err != nil {
 			return err
 		}
 		if err := store.SaveFilters(f); err != nil {
 			return err
 		}
-		tui.PrintResults(rows, players, total, matches, wins)
+		tui.PrintResults(result)
 		return nil
 	case "path":
 		fmt.Println(path)
@@ -192,7 +191,7 @@ Commands for scripting:
   db-import -source PATH           Install a snapshot and back up existing data
 
 Example:
-  matchup-lookup find -champion Fiora -opponent Darius -result win -kda ge -rank diamond -days 7
+  matchup-lookup find -champion Fiora -opponent Darius -result win -kda ge -rank diamond
 
 Use "matchup-lookup import -h" or "matchup-lookup find -h" for flags.`)
 }

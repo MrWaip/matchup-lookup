@@ -10,12 +10,19 @@ import (
 	"database/sql"
 )
 
-const countTrackedGames = `-- name: CountTrackedGames :one
-SELECT COUNT(*) FROM tracked_games
+const countTrackedGamesInPatch = `-- name: CountTrackedGamesInPatch :one
+SELECT COUNT(*) FROM tracked_games g
+JOIN matches m ON m.match_id = g.match_id
+WHERE CAST(?1 AS INTEGER) = 0 OR (m.patch_major = ?1 AND m.patch_minor = ?2)
 `
 
-func (q *Queries) CountTrackedGames(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countTrackedGames)
+type CountTrackedGamesInPatchParams struct {
+	PatchMajor int64
+	PatchMinor int64
+}
+
+func (q *Queries) CountTrackedGamesInPatch(ctx context.Context, arg CountTrackedGamesInPatchParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTrackedGamesInPatch, arg.PatchMajor, arg.PatchMinor)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

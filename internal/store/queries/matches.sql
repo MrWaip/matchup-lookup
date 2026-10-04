@@ -49,8 +49,10 @@ INSERT OR IGNORE INTO tracked_games
      player_position, opponent_position, matchup_status)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
--- name: CountTrackedGames :one
-SELECT COUNT(*) FROM tracked_games;
+-- name: CountTrackedGamesInPatch :one
+SELECT COUNT(*) FROM tracked_games g
+JOIN matches m ON m.match_id = g.match_id
+WHERE CAST(@patch_major AS INTEGER) = 0 OR (m.patch_major = @patch_major AND m.patch_minor = @patch_minor);
 
 -- name: LatestPatch :one
 SELECT patch_major, patch_minor FROM matches

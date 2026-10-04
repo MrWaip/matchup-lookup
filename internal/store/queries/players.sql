@@ -11,9 +11,6 @@ WHERE game_name = @game_name COLLATE NOCASE AND tag_line = @tag_line COLLATE NOC
 SELECT puuid, game_name, tag_line, region, rank_tier, rank_division, league_points
 FROM players ORDER BY game_name COLLATE NOCASE, tag_line COLLATE NOCASE;
 
--- name: ListRegions :many
-SELECT DISTINCT region FROM players ORDER BY region;
-
 -- name: CountPlayers :one
 SELECT COUNT(*) FROM players;
 

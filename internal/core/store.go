@@ -80,7 +80,7 @@ func (s *Store) LastFilters() (Filters, bool, error) {
 		return Filters{}, false, err
 	}
 	if !found {
-		return Filters{Days: 7, Limit: 100, Result: "any", KDACompare: "any", Rank: "any"}, false, nil
+		return Filters{Limit: 100, Result: "any", KDACompare: "any", Rank: "any"}, false, nil
 	}
 	var filters Filters
 	if err := json.Unmarshal([]byte(raw), &filters); err != nil {
@@ -187,10 +187,6 @@ func (s *Store) ListPlayers() ([]Player, error) {
 		players = append(players, playerFromRow(r.Puuid, r.GameName, r.TagLine, r.Region, r.RankTier, r.RankDivision, r.LeaguePoints))
 	}
 	return players, nil
-}
-
-func (s *Store) ListRegions() ([]string, error) {
-	return s.q.ListRegions(context.Background())
 }
 
 func (s *Store) AddPlayerChampion(puuid, champion string) error {
@@ -346,28 +342,27 @@ func (s *Store) SaveTrackedGame(m Match, p Player, f Participant, o *Participant
 }
 
 // PruneOldPatches deletes matches from patches before the newest stored one:
-// their replays can no longer be opened. It returns the number of matches removed.
+// their replays can no longer be opened. It deliberately ignores the live
+// patch from Data Dragon, which can lead a region's rollout by hours.
+// It returns the number of matches removed.
 func (s *Store) PruneOldPatches() (int64, error) {
-	ctx := context.Background()
-	latest, err := s.q.LatestPatch(ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	}
-	if err != nil {
+	latest, err := s.newestStoredPatch()
+	if err != nil || latest.IsZero() {
 		return 0, err
 	}
+	ctx := context.Background()
 	var removed int64
 	err = s.withTx(func(q *store.Queries) error {
 		if err := q.DeleteTrackedGamesBeforePatch(ctx, store.DeleteTrackedGamesBeforePatchParams{
-			Major: latest.PatchMajor, Minor: latest.PatchMinor}); err != nil {
+			Major: latest.Major, Minor: latest.Minor}); err != nil {
 			return err
 		}
 		if err := q.DeleteParticipantsBeforePatch(ctx, store.DeleteParticipantsBeforePatchParams{
-			Major: latest.PatchMajor, Minor: latest.PatchMinor}); err != nil {
+			Major: latest.Major, Minor: latest.Minor}); err != nil {
 			return err
 		}
 		removed, err = q.DeleteMatchesBeforePatch(ctx, store.DeleteMatchesBeforePatchParams{
-			Major: latest.PatchMajor, Minor: latest.PatchMinor})
+			Major: latest.Major, Minor: latest.Minor})
 		return err
 	})
 	return removed, err

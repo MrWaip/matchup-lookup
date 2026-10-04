@@ -79,12 +79,13 @@ func TestCollectAndSearchOffline(t *testing.T) {
 	if err != nil || len(champions) != 2 || champions[0] != "Camille" || champions[1] != "Fiora" {
 		t.Fatalf("player champions: %v %v", champions, err)
 	}
-	rows, players, total, matching, wins, err := Search(store, Filters{Champion: "Fiora", Opponent: "darius", Result: "win", KDACompare: "ge", Rank: "diamond", Days: 7, Region: "euw1", Limit: 10})
+	found, err := Search(store, Filters{Champion: "Fiora", Opponent: "darius", Result: "win", KDACompare: "ge", Rank: "diamond", Region: "euw1", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if players != 2 || total != 2 || matching != 1 || wins != 1 || len(rows) != 1 {
-		t.Fatalf("unexpected counts: %d %d %d %d rows=%d", players, total, matching, wins, len(rows))
+	rows := found.Results
+	if found.Players != 2 || found.Stored != 2 || found.Matching != 1 || found.Wins != 1 || len(rows) != 1 || found.Patch.String() != "26.19" {
+		t.Fatalf("unexpected counts: %+v", found)
 	}
 	if rows[0].PlayerID != "FioraPlayer#EUW" || rows[0].Champion != "Fiora" || rows[0].Opponent != "Darius" || rows[0].Status != "confirmed" || rows[0].OpponentKDA != "5/4/2" {
 		t.Fatalf("bad result: %+v", rows[0])
@@ -95,23 +96,17 @@ func TestCollectAndSearchOffline(t *testing.T) {
 	if rows[0].Patch != "26.19" {
 		t.Fatalf("displayed patch: %s", rows[0].Patch)
 	}
-	for _, patch := range []string{"16.19", "26.19"} {
-		_, _, _, count, _, err := Search(store, Filters{Patch: patch, Champion: "Fiora", Limit: 10})
-		if err != nil || count != 1 {
-			t.Fatalf("patch %s: count=%d err=%v", patch, count, err)
-		}
+	found, err = Search(store, Filters{Region: "na1", Limit: 10})
+	if err != nil || found.Matching != 0 || len(found.Results) != 0 {
+		t.Fatalf("wrong server returned games: %+v %v", found, err)
 	}
-	rows, _, _, matching, _, err = Search(store, Filters{Region: "na1", Limit: 10})
-	if err != nil || matching != 0 || len(rows) != 0 {
-		t.Fatalf("wrong server returned games: %d %v", matching, err)
+	found, err = Search(store, Filters{Opponent: "Darius", Result: "loss", Rank: "diamond", Region: "euw1", Limit: 10})
+	if err != nil || found.Matching != 0 {
+		t.Fatalf("loss filter: %+v, err %v", found, err)
 	}
-	rows, _, _, matching, _, err = Search(store, Filters{Opponent: "Darius", Result: "loss", Rank: "diamond", Days: 7, Region: "euw1", Limit: 10})
-	if err != nil || matching != 0 || len(rows) != 0 {
-		t.Fatalf("loss filter: %d rows, err %v", len(rows), err)
-	}
-	rows, _, _, matching, _, err = Search(store, Filters{Champion: "LeeSin", Days: 7, Region: "euw1", Limit: 10})
-	if err != nil || matching != 1 || len(rows) != 1 {
-		t.Fatalf("other champion: %d rows, err %v", len(rows), err)
+	found, err = Search(store, Filters{Champion: "LeeSin", Region: "euw1", Limit: 10})
+	if err != nil || found.Matching != 1 {
+		t.Fatalf("other champion: %+v, err %v", found, err)
 	}
 }
 
@@ -149,9 +144,9 @@ func TestCollectMatchRefreshesLegacyLoadoutOnce(t *testing.T) {
 	if api.matchCalls != 1 {
 		t.Fatalf("legacy match fetched %d times, want once", api.matchCalls)
 	}
-	rows, _, _, _, _, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
-	if err != nil || len(rows) != 1 || rows[0].Spells != "Flash + Teleport" || rows[0].SecondaryRunes != "Bone Plating + Overgrowth" {
-		t.Fatalf("refreshed loadout: rows=%+v err=%v", rows, err)
+	found, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
+	if err != nil || len(found.Results) != 1 || found.Results[0].Spells != "Flash + Teleport" || found.Results[0].SecondaryRunes != "Bone Plating + Overgrowth" {
+		t.Fatalf("refreshed loadout: %+v err=%v", found, err)
 	}
 }
 
@@ -260,7 +255,7 @@ func TestLastSearchPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filters := Filters{Champion: "Fiora", Opponent: "Darius", Region: "euw1", Result: "win", Rank: "diamond", Days: 7, Limit: 100}
+	filters := Filters{Champion: "Fiora", Opponent: "Darius", Region: "euw1", Result: "win", Rank: "diamond", Limit: 100}
 	if err := store.SaveFilters(filters); err != nil {
 		t.Fatal(err)
 	}
@@ -297,9 +292,9 @@ func TestKDAEqualityFilter(t *testing.T) {
 		compare string
 		want    int
 	}{{"ge", 1}, {"gt", 0}} {
-		_, _, _, matching, _, err := Search(store, Filters{Champion: "Fiora", Opponent: "Darius", Result: "win", KDACompare: tc.compare, Limit: 10})
-		if err != nil || matching != tc.want {
-			t.Fatalf("compare %s: got %d, want %d; err %v", tc.compare, matching, tc.want, err)
+		found, err := Search(store, Filters{Champion: "Fiora", Opponent: "Darius", Result: "win", KDACompare: tc.compare, Limit: 10})
+		if err != nil || found.Matching != tc.want {
+			t.Fatalf("compare %s: got %d, want %d; err %v", tc.compare, found.Matching, tc.want, err)
 		}
 	}
 }
@@ -353,14 +348,55 @@ func TestPruneOldPatchesKeepsChecks(t *testing.T) {
 	if err != nil || removed != 1 {
 		t.Fatalf("removed %d, err %v; want the 16.9 match only (16.19 is newer)", removed, err)
 	}
-	rows, _, total, _, _, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
-	if err != nil || total != 1 || len(rows) != 1 || rows[0].MatchID != "EUW1_NEW" {
-		t.Fatalf("after prune: total=%d rows=%+v err=%v", total, rows, err)
+	found, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
+	if err != nil || found.Stored != 1 || len(found.Results) != 1 || found.Results[0].MatchID != "EUW1_NEW" {
+		t.Fatalf("after prune: %+v err=%v", found, err)
 	}
 	if _, cached, _ := store.CachedMatch("EUW1_OLD"); cached {
 		t.Fatal("old match still cached")
 	}
 	if checked, err := store.GameExists("EUW1_OLD", player.PUUID); err != nil || !checked {
 		t.Fatal("pruned match must stay checked so it is not downloaded again")
+	}
+}
+
+func TestSearchShowsOnlyCurrentPatch(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "matches.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	player := Player{PUUID: "fiora", GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}
+	if err := store.UpsertPlayer(Seed{Region: player.Region}, Account{PUUID: player.PUUID, GameName: player.GameName, TagLine: player.TagLine}); err != nil {
+		t.Fatal(err)
+	}
+	for id, version := range map[string]string{"EUW1_OLD": "16.18.1", "EUW1_NEW": "16.19.1"} {
+		m := sampleMatch()
+		m.Metadata.MatchID, m.Info.GameVersion = id, version
+		if err := store.SaveMatch(m); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveTrackedGame(m, player, m.Info.Participants[0], &m.Info.Participants[1], "confirmed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found, err := Search(store, Filters{Champion: "Fiora", Limit: 10})
+	if err != nil || found.Patch.String() != "26.19" || found.Stored != 1 || len(found.Results) != 1 || found.Results[0].MatchID != "EUW1_NEW" {
+		t.Fatalf("newest stored patch: %+v err=%v", found, err)
+	}
+	// Riot released 26.20 but no match of it is stored yet: nothing is watchable.
+	if err := store.setSetting("live_patch", "16.20.1"); err != nil {
+		t.Fatal(err)
+	}
+	found, err = Search(store, Filters{Champion: "Fiora", Limit: 10})
+	if err != nil || found.Patch.String() != "26.20" || found.Stored != 0 || found.Matching != 0 {
+		t.Fatalf("live patch ahead of stored matches: %+v err=%v", found, err)
+	}
+	// An outdated live patch never hides newer stored matches.
+	if err := store.setSetting("live_patch", "16.17.1"); err != nil {
+		t.Fatal(err)
+	}
+	if found, err = Search(store, Filters{Champion: "Fiora", Limit: 10}); err != nil || found.Patch.String() != "26.19" {
+		t.Fatalf("stale live patch: %+v err=%v", found, err)
 	}
 }

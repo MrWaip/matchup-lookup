@@ -65,9 +65,10 @@ func withStore[T any](a *App, fn func(*core.Store) (T, error)) (T, error) {
 	return fn(a.store)
 }
 
-type Region struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+type Server struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Players int    `json:"players"`
 }
 
 type Overview struct {
@@ -76,12 +77,13 @@ type Overview struct {
 	KeyFromEnv    bool     `json:"keyFromEnv"`
 	Players       int      `json:"players"`
 	Pending       int      `json:"pending"`
-	Regions       []Region `json:"regions"`
+	Servers       []Server `json:"servers"`
 	PlayersSource string   `json:"playersSource"`
 }
 
 func (a *App) Overview() (Overview, error) {
 	return withStore(a, func(s *core.Store) (Overview, error) {
+		_ = core.RefreshLivePatch(a.ctx, s) // offline: search uses the last known patch
 		o := Overview{DBPath: a.path, PlayersSource: core.DefaultPlayersSource,
 			KeyFromEnv: strings.TrimSpace(os.Getenv("RIOT_API_KEY")) != ""}
 		key, err := core.ConfiguredRiotKey(s)
@@ -98,13 +100,13 @@ func (a *App) Overview() (Overview, error) {
 			return o, err
 		}
 		o.Players, o.Pending = len(players), len(pending)
-		regions, err := s.ListRegions()
+		servers, err := s.Servers()
 		if err != nil {
 			return o, err
 		}
-		o.Regions = make([]Region, len(regions))
-		for i, id := range regions {
-			o.Regions[i] = Region{ID: id, Label: core.PlatformLabel(id)}
+		o.Servers = make([]Server, len(servers))
+		for i, server := range servers {
+			o.Servers[i] = Server{ID: server.Platform, Label: server.Label, Players: server.Players}
 		}
 		return o, nil
 	})
@@ -119,7 +121,6 @@ type Filters struct {
 	Result     string `json:"result"`
 	KDACompare string `json:"kda"`
 	Rank       string `json:"rank"`
-	Days       int    `json:"days"`
 	MinMinutes int    `json:"minMinutes"`
 	Player     string `json:"player"`
 }
@@ -128,7 +129,7 @@ func (a *App) LastFilters() (Filters, error) {
 	return withStore(a, func(s *core.Store) (Filters, error) {
 		f, _, err := s.LastFilters()
 		return Filters{Region: f.Region, Champion: f.Champion, Opponent: f.Opponent, Result: f.Result,
-			KDACompare: f.KDACompare, Rank: f.Rank, Days: f.Days, MinMinutes: f.MinMinutes, Player: f.Player}, err
+			KDACompare: f.KDACompare, Rank: f.Rank, MinMinutes: f.MinMinutes, Player: f.Player}, err
 	})
 }
 
@@ -154,6 +155,7 @@ type Game struct {
 
 type SearchResult struct {
 	Games    []Game `json:"games"`
+	Patch    string `json:"patch"`
 	Players  int    `json:"players"`
 	Stored   int    `json:"stored"`
 	Matching int    `json:"matching"`
@@ -166,23 +168,28 @@ const searchLimit = 500
 func (a *App) Search(f Filters) (SearchResult, error) {
 	return withStore(a, func(s *core.Store) (SearchResult, error) {
 		filters := core.Filters{Region: f.Region, Champion: f.Champion, Opponent: f.Opponent, Result: f.Result,
-			KDACompare: f.KDACompare, Rank: f.Rank, Days: f.Days, MinMinutes: f.MinMinutes, Player: f.Player,
+			KDACompare: f.KDACompare, Rank: f.Rank, MinMinutes: f.MinMinutes, Player: f.Player,
 			Limit: searchLimit}
-		rows, players, stored, matching, wins, err := core.Search(s, filters)
+		found, err := core.Search(s, filters)
 		if err != nil {
 			return SearchResult{}, err
 		}
 		if err := s.SaveFilters(filters); err != nil {
 			return SearchResult{}, err
 		}
-		games := make([]Game, len(rows))
-		for i, r := range rows {
+		games := make([]Game, len(found.Results))
+		for i, r := range found.Results {
 			games[i] = Game{MatchID: r.MatchID, Date: r.Date.Format(time.RFC3339), Region: r.Region, Patch: r.Patch,
 				Win: r.Win, PlayerID: r.PlayerID, Champion: r.Champion, Rank: r.Rank, KDA: r.KDA, CS: r.CS,
 				Opponent: r.Opponent, OpponentID: r.OpponentID, OpponentKDA: r.OpponentKDA, Status: r.Status,
 				Spells: r.Spells, Keystone: r.Keystone, SecondaryRunes: r.SecondaryRunes}
 		}
-		return SearchResult{Games: games, Players: players, Stored: stored, Matching: matching, Wins: wins}, nil
+		patch := ""
+		if !found.Patch.IsZero() {
+			patch = found.Patch.String()
+		}
+		return SearchResult{Games: games, Patch: patch, Players: found.Players, Stored: found.Stored,
+			Matching: found.Matching, Wins: found.Wins}, nil
 	})
 }
 

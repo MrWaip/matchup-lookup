@@ -51,26 +51,24 @@ WHERE (CAST(?1 AS TEXT) = '' OR m.platform = ?1 COLLATE NOCASE)
   AND (CAST(?6 AS INTEGER) = 0 OR CASE UPPER(g.rank_tier)
         WHEN 'EMERALD' THEN 1 WHEN 'DIAMOND' THEN 2 WHEN 'MASTER' THEN 3
         WHEN 'GRANDMASTER' THEN 4 WHEN 'CHALLENGER' THEN 5 ELSE 0 END >= ?6)
-  AND m.game_creation >= ?7
-  AND m.game_duration >= ?8
-  AND (CAST(?9 AS INTEGER) = 0 OR (m.patch_major = ?9 AND m.patch_minor = ?10))
-  AND (CAST(?11 AS TEXT) = '' OR me.riot_id_game_name = ?11 COLLATE NOCASE
-       OR p.game_name = ?11 COLLATE NOCASE OR g.player_puuid = ?11)
+  AND m.game_duration >= ?7
+  AND (CAST(?8 AS INTEGER) = 0 OR (m.patch_major = ?8 AND m.patch_minor = ?9))
+  AND (CAST(?10 AS TEXT) = '' OR me.riot_id_game_name = ?10 COLLATE NOCASE
+       OR p.game_name = ?10 COLLATE NOCASE OR g.player_puuid = ?10)
 ORDER BY m.game_creation DESC, m.match_id DESC, g.opponent_view
 `
 
 type SearchGamesParams struct {
-	Region       string
-	Champion     string
-	Opponent     string
-	Result       string
-	Kda          string
-	MinRank      int64
-	CreatedSince int64
-	MinDuration  int64
-	PatchMajor   int64
-	PatchMinor   int64
-	Player       string
+	Region      string
+	Champion    string
+	Opponent    string
+	Result      string
+	Kda         string
+	MinRank     int64
+	MinDuration int64
+	PatchMajor  int64
+	PatchMinor  int64
+	Player      string
 }
 
 type SearchGamesRow struct {
@@ -107,7 +105,8 @@ type SearchGamesRow struct {
 // Every tracked game is searchable from both sides: the tracked player's and,
 // unless the opponent is tracked too, the lane opponent's (listed second). The opponent's rank
 // is known only when the opponent is a tracked player. Empty/zero parameters
-// disable their filter. Results are newest first.
+// disable their filter; the application always passes the current patch.
+// Results are newest first.
 func (q *Queries) SearchGames(ctx context.Context, arg SearchGamesParams) ([]SearchGamesRow, error) {
 	rows, err := q.db.QueryContext(ctx, searchGames,
 		arg.Region,
@@ -116,7 +115,6 @@ func (q *Queries) SearchGames(ctx context.Context, arg SearchGamesParams) ([]Sea
 		arg.Result,
 		arg.Kda,
 		arg.MinRank,
-		arg.CreatedSince,
 		arg.MinDuration,
 		arg.PatchMajor,
 		arg.PatchMinor,

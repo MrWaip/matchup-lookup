@@ -14,6 +14,10 @@ var matchRoutes = map[string]string{
 	"oc1": "sea", "sg2": "sea", "tw2": "sea", "vn2": "sea", "ph2": "sea", "th2": "sea",
 }
 
+// Platforms lists every supported server, most populated first.
+var Platforms = []string{"euw1", "eun1", "na1", "kr", "br1", "la1", "la2", "oc1", "tr1", "ru", "jp1",
+	"sg2", "tw2", "vn2", "ph2", "th2"}
+
 func RegionalRoute(platform string) (string, error) {
 	route, ok := matchRoutes[strings.ToLower(platform)]
 	if !ok {
@@ -57,6 +61,16 @@ func PlatformLabel(platform string) string {
 		return "TR"
 	case "ru":
 		return "RU"
+	case "sg2":
+		return "SG"
+	case "tw2":
+		return "TW"
+	case "vn2":
+		return "VN"
+	case "ph2":
+		return "PH"
+	case "th2":
+		return "TH"
 	default:
 		return strings.ToUpper(platform)
 	}

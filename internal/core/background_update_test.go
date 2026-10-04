@@ -53,7 +53,7 @@ func TestBackgroundUpdateDoesNotBlockSearchAndCanCancel(t *testing.T) {
 	if err := bg.Start(api); err == nil {
 		t.Fatal("second update was allowed")
 	}
-	if _, _, _, _, _, err := Search(store, Filters{Days: 7, Limit: 10}); err != nil {
+	if _, err := Search(store, Filters{Limit: 10}); err != nil {
 		t.Fatalf("search while update runs: %v", err)
 	}
 	bg.Stop()

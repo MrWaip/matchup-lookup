@@ -34,28 +34,28 @@ func TestSearchCanViewStoredMatchFromOpponentSide(t *testing.T) {
 	if err := s.SaveTrackedGame(m, Player{PUUID: fiora.PUUID, GameName: "FioraMain", TagLine: "EUW", Region: "euw1", Tier: "MASTER", Division: "I"}, fiora, &darius, "confirmed"); err != nil {
 		t.Fatal(err)
 	}
-	forward, _, _, matching, wins, err := Search(s, Filters{Champion: "Fiora", Opponent: "Darius", Result: "loss", Limit: 10})
-	if err != nil || matching != 1 || wins != 0 || len(forward) != 1 {
-		t.Fatalf("forward: rows=%+v matching=%d wins=%d err=%v", forward, matching, wins, err)
+	found, err := Search(s, Filters{Champion: "Fiora", Opponent: "Darius", Result: "loss", Limit: 10})
+	if err != nil || found.Matching != 1 || found.Wins != 0 || len(found.Results) != 1 {
+		t.Fatalf("forward: %+v err=%v", found, err)
 	}
-	if r := forward[0]; r.Spells != "Flash + Teleport" || r.Keystone != "Conqueror" || r.SecondaryRunes != "Bone Plating + Overgrowth" {
+	if r := found.Results[0]; r.Spells != "Flash + Teleport" || r.Keystone != "Conqueror" || r.SecondaryRunes != "Bone Plating + Overgrowth" {
 		t.Fatalf("forward loadout: %+v", r)
 	}
-	reverse, _, _, matching, wins, err := Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", Limit: 10})
-	if err != nil || matching != 1 || wins != 1 || len(reverse) != 1 {
-		t.Fatalf("reverse: rows=%+v matching=%d wins=%d err=%v", reverse, matching, wins, err)
+	found, err = Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", Limit: 10})
+	if err != nil || found.Matching != 1 || found.Wins != 1 || len(found.Results) != 1 {
+		t.Fatalf("reverse: %+v err=%v", found, err)
 	}
-	if r := reverse[0]; r.PlayerID != "DariusMain#EUW" || r.OpponentID != "FioraMain#EUW" || r.KDA != "6/0/3" || r.OpponentKDA != "0/5/1" || r.CS != 174 || r.MatchID != m.Metadata.MatchID || r.Spells != "Ghost + Flash" || r.Keystone != "Conqueror" || r.SecondaryRunes != "Bone Plating + Second Wind" {
+	if r := found.Results[0]; r.PlayerID != "DariusMain#EUW" || r.OpponentID != "FioraMain#EUW" || r.KDA != "6/0/3" || r.OpponentKDA != "0/5/1" || r.CS != 174 || r.MatchID != m.Metadata.MatchID || r.Spells != "Ghost + Flash" || r.Keystone != "Conqueror" || r.SecondaryRunes != "Bone Plating + Second Wind" {
 		t.Fatalf("reverse row: %+v", r)
 	}
-	_, _, _, matching, wins, err = Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", KDACompare: "gt", Limit: 10})
-	if err != nil || matching != 1 || wins != 1 {
-		t.Fatalf("reverse KDA comparison: matching=%d wins=%d err=%v", matching, wins, err)
+	found, err = Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", KDACompare: "gt", Limit: 10})
+	if err != nil || found.Matching != 1 || found.Wins != 1 {
+		t.Fatalf("reverse KDA comparison: %+v err=%v", found, err)
 	}
 	// Match-v5 does not contain a rank for the opposing player.
-	_, _, _, matching, _, err = Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Rank: "Diamond+", Limit: 10})
-	if err != nil || matching != 0 {
-		t.Fatalf("unknown opponent rank must not pass Diamond+: matching=%d err=%v", matching, err)
+	found, err = Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Rank: "Diamond+", Limit: 10})
+	if err != nil || found.Matching != 0 {
+		t.Fatalf("unknown opponent rank must not pass Diamond+: %+v err=%v", found, err)
 	}
 	if err := s.UpsertPlayer(Seed{GameName: "DariusMain", TagLine: "EUW", Region: "euw1"}, Account{PUUID: darius.PUUID, GameName: "DariusMain", TagLine: "EUW"}); err != nil {
 		t.Fatal(err)
@@ -63,8 +63,8 @@ func TestSearchCanViewStoredMatchFromOpponentSide(t *testing.T) {
 	if err := s.SaveTrackedGame(m, Player{PUUID: darius.PUUID, Tier: "DIAMOND", Division: "I"}, darius, &fiora, "confirmed"); err != nil {
 		t.Fatal(err)
 	}
-	rows, _, _, matching, wins, err := Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", Rank: "Diamond+", Limit: 10})
-	if err != nil || matching != 1 || wins != 1 || len(rows) != 1 || rows[0].Rank != "DIAMOND I" {
-		t.Fatalf("tracked opponent must have one ranked row: rows=%+v matching=%d wins=%d err=%v", rows, matching, wins, err)
+	found, err = Search(s, Filters{Champion: "Darius", Opponent: "Fiora", Result: "win", Rank: "Diamond+", Limit: 10})
+	if err != nil || found.Matching != 1 || found.Wins != 1 || len(found.Results) != 1 || found.Results[0].Rank != "DIAMOND I" {
+		t.Fatalf("tracked opponent must have one ranked row: %+v err=%v", found, err)
 	}
 }

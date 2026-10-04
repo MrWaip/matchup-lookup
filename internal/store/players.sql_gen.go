@@ -217,33 +217,6 @@ func (q *Queries) ListPlayers(ctx context.Context) ([]ListPlayersRow, error) {
 	return items, nil
 }
 
-const listRegions = `-- name: ListRegions :many
-SELECT DISTINCT region FROM players ORDER BY region
-`
-
-func (q *Queries) ListRegions(ctx context.Context) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listRegions)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var region string
-		if err := rows.Scan(&region); err != nil {
-			return nil, err
-		}
-		items = append(items, region)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listSeedChampions = `-- name: ListSeedChampions :many
 SELECT champion FROM player_seeds
 WHERE region = ? AND game_name = ? AND tag_line = ?
