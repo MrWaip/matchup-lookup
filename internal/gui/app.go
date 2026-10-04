@@ -28,6 +28,10 @@ type App struct {
 	mu         sync.RWMutex
 	store      *core.Store
 	background *core.BackgroundUpdate
+
+	iconsMu    sync.Mutex
+	icons      *core.Icons // nil until Data Dragon answers
+	iconsTried time.Time
 }
 
 // Run opens the window and blocks until it is closed.
@@ -84,6 +88,7 @@ type Overview struct {
 func (a *App) Overview() (Overview, error) {
 	return withStore(a, func(s *core.Store) (Overview, error) {
 		_ = core.RefreshLivePatch(a.ctx, s) // offline: search uses the last known patch
+		a.loadIcons(s)
 		o := Overview{DBPath: a.path, PlayersSource: core.DefaultPlayersSource,
 			KeyFromEnv: strings.TrimSpace(os.Getenv("RIOT_API_KEY")) != ""}
 		key, err := core.ConfiguredRiotKey(s)
@@ -112,6 +117,26 @@ func (a *App) Overview() (Overview, error) {
 	})
 }
 
+// loadIcons fetches Data Dragon icon tables once, retrying a failed attempt
+// after a few minutes; until then results simply carry no icon URLs.
+func (a *App) loadIcons(s *core.Store) {
+	a.iconsMu.Lock()
+	defer a.iconsMu.Unlock()
+	if a.icons != nil || time.Since(a.iconsTried) < 5*time.Minute {
+		return
+	}
+	a.iconsTried = time.Now()
+	if icons, err := core.LoadIcons(a.ctx, s); err == nil {
+		a.icons = icons
+	}
+}
+
+func (a *App) currentIcons() *core.Icons {
+	a.iconsMu.Lock()
+	defer a.iconsMu.Unlock()
+	return a.icons
+}
+
 // Filters mirrors core.Filters with JSON names for the frontend; core.Filters
 // itself is persisted with Go field names.
 type Filters struct {
@@ -134,23 +159,28 @@ func (a *App) LastFilters() (Filters, error) {
 }
 
 type Game struct {
-	MatchID        string `json:"matchId"`
-	Date           string `json:"date"`
-	Region         string `json:"region"`
-	Patch          string `json:"patch"`
-	Win            bool   `json:"win"`
-	PlayerID       string `json:"playerId"`
-	Champion       string `json:"champion"`
-	Rank           string `json:"rank"`
-	KDA            string `json:"kda"`
-	CS             int    `json:"cs"`
-	Opponent       string `json:"opponent"`
-	OpponentID     string `json:"opponentId"`
-	OpponentKDA    string `json:"opponentKda"`
-	Status         string `json:"status"`
-	Spells         string `json:"spells"`
-	Keystone       string `json:"keystone"`
-	SecondaryRunes string `json:"secondaryRunes"`
+	MatchID        string   `json:"matchId"`
+	ChampionIcon   string   `json:"championIcon"`
+	OpponentIcon   string   `json:"opponentIcon"`
+	SpellIcons     []string `json:"spellIcons"`
+	KeystoneIcon   string   `json:"keystoneIcon"`
+	SecondaryIcons []string `json:"secondaryIcons"`
+	Date           string   `json:"date"`
+	Region         string   `json:"region"`
+	Patch          string   `json:"patch"`
+	Win            bool     `json:"win"`
+	PlayerID       string   `json:"playerId"`
+	Champion       string   `json:"champion"`
+	Rank           string   `json:"rank"`
+	KDA            string   `json:"kda"`
+	CS             int      `json:"cs"`
+	Opponent       string   `json:"opponent"`
+	OpponentID     string   `json:"opponentId"`
+	OpponentKDA    string   `json:"opponentKda"`
+	Status         string   `json:"status"`
+	Spells         string   `json:"spells"`
+	Keystone       string   `json:"keystone"`
+	SecondaryRunes string   `json:"secondaryRunes"`
 }
 
 type SearchResult struct {
@@ -177,9 +207,14 @@ func (a *App) Search(f Filters) (SearchResult, error) {
 		if err := s.SaveFilters(filters); err != nil {
 			return SearchResult{}, err
 		}
+		icons := a.currentIcons()
 		games := make([]Game, len(found.Results))
 		for i, r := range found.Results {
-			games[i] = Game{MatchID: r.MatchID, Date: r.Date.Format(time.RFC3339), Region: r.Region, Patch: r.Patch,
+			games[i] = Game{MatchID: r.MatchID,
+				ChampionIcon: icons.Champion(r.Champion), OpponentIcon: icons.Champion(r.Opponent),
+				SpellIcons:     []string{icons.Spell(r.SpellIDs[0]), icons.Spell(r.SpellIDs[1])},
+				KeystoneIcon:   icons.Rune(r.KeystoneID),
+				SecondaryIcons: []string{icons.Rune(r.SecondaryIDs[0]), icons.Rune(r.SecondaryIDs[1])}, Date: r.Date.Format(time.RFC3339), Region: r.Region, Patch: r.Patch,
 				Win: r.Win, PlayerID: r.PlayerID, Champion: r.Champion, Rank: r.Rank, KDA: r.KDA, CS: r.CS,
 				Opponent: r.Opponent, OpponentID: r.OpponentID, OpponentKDA: r.OpponentKDA, Status: r.Status,
 				Spells: r.Spells, Keystone: r.Keystone, SecondaryRunes: r.SecondaryRunes}
@@ -196,6 +231,7 @@ func (a *App) Search(f Filters) (SearchResult, error) {
 type Champion struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Icon string `json:"icon"`
 }
 
 // Champions returns up to limit champions fuzzily matching query.
@@ -206,9 +242,10 @@ func (a *App) Champions(query string, limit int) ([]Champion, error) {
 			return nil, err
 		}
 		ranked := core.RankChampions(all, query)
+		icons := a.currentIcons()
 		result := make([]Champion, 0, min(limit, len(ranked)))
 		for _, c := range ranked[:min(limit, len(ranked))] {
-			result = append(result, Champion{ID: c.ID, Name: c.Name})
+			result = append(result, Champion{ID: c.ID, Name: c.Name, Icon: icons.Champion(c.ID)})
 		}
 		return result, nil
 	})

@@ -1,6 +1,6 @@
 import * as api from "./api.js";
 import { championCombobox } from "./combobox.js";
-import { $, h, showError, toast } from "./dom.js";
+import { $, h, icon, showError, toast } from "./dom.js";
 
 /** @import { Filters, Game, Overview, SearchResult, UpdateStatus } from "./api.js" */
 
@@ -114,7 +114,10 @@ function renderGames({ stored, patch }) {
   },
     h("td", { className: "muted" }, dateFormat.format(new Date(game.date))),
     h("td", {}, h("span", { className: `badge ${game.win ? "win" : "loss"}` }, game.win ? "Win" : "Loss")),
-    h("td", {}, h("b", {}, game.champion), h("span", { className: "muted" }, " vs "), game.opponent),
+    h("td", {}, h("span", { className: "matchup" },
+      icon(game.championIcon), h("b", {}, game.champion),
+      h("span", { className: "muted" }, "vs"),
+      icon(game.opponentIcon), game.opponent)),
     h("td", { className: "ellipsis col-player", title: game.playerId }, game.playerId),
     h("td", { className: "col-rank" }, game.rank),
     h("td", { className: "num" }, game.kda),
@@ -142,8 +145,10 @@ function select(index) {
 function renderDetails(game) {
   details.hidden = !game;
   if (!game) return;
-  /** @param {string} label @param {string} value */
-  const field = (label, value) => h("div", { className: "field" }, h("dt", {}, label), h("dd", {}, value));
+  /** @param {string} label @param {...(Node | string)} value */
+  const field = (label, ...value) => h("div", { className: "field" }, h("dt", {}, label), h("dd", {}, ...value));
+  /** @param {string[]} icons @param {string} names "A + B" */
+  const pair = (icons, names) => [...icons.map((src) => icon(src)), " ", names];
   const copy = h("button", {
     type: "button",
     className: "link",
@@ -154,17 +159,21 @@ function renderDetails(game) {
   }, "Copy");
   details.replaceChildren(
     h("header", {},
-      h("span", { className: `badge ${game.win ? "win" : "loss"}` }, game.win ? "Win" : "Loss"),
-      h("h2", {}, `${game.champion} vs ${game.opponent}`),
+      icon(game.championIcon, game.champion, "portrait"),
+      h("span", { className: "muted" }, "vs"),
+      icon(game.opponentIcon, game.opponent, "portrait"),
+      h("div", {},
+        h("h2", {}, `${game.champion} vs ${game.opponent}`),
+        h("span", { className: `badge ${game.win ? "win" : "loss"}` }, game.win ? "Win" : "Loss")),
       h("button", { type: "button", className: "primary", onclick: (event) => launchReplay(game, event.currentTarget) }, "▶ Watch replay"),
     ),
     h("dl", {},
       field("Player", `${game.playerId} · ${game.rank}`),
       field("Opponent", game.opponentId),
       field("K/D/A", `${game.kda} vs ${game.opponentKda} · ${game.cs} CS`),
-      field("Spells", game.spells),
-      field("Keystone", game.keystone),
-      field("Secondary", game.secondaryRunes),
+      field("Spells", ...pair(game.spellIcons, game.spells)),
+      field("Keystone", icon(game.keystoneIcon), " ", game.keystone),
+      field("Secondary", ...pair(game.secondaryIcons, game.secondaryRunes)),
       field("Played", `${longDateFormat.format(new Date(game.date))} · ${game.region} · patch ${game.patch}`),
       h("div", { className: "field" }, h("dt", {}, "Match ID"), h("dd", {}, game.matchId, " ", copy)),
     ),

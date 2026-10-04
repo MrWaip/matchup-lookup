@@ -35,6 +35,11 @@
 /**
  * @typedef {object} Game
  * @property {string} matchId
+ * @property {string} championIcon Data Dragon image URL; "" when unavailable (also for every other icon)
+ * @property {string} opponentIcon
+ * @property {string[]} spellIcons two summoner spells
+ * @property {string} keystoneIcon
+ * @property {string[]} secondaryIcons two secondary runes
  * @property {string} date RFC 3339
  * @property {string} region
  * @property {string} patch
@@ -67,6 +72,7 @@
  * @typedef {object} Champion
  * @property {string} id
  * @property {string} name
+ * @property {string} icon Data Dragon image URL; "" when unavailable
  */
 
 /**

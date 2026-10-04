@@ -1,9 +1,10 @@
 import { champions } from "./api.js";
-import { h, showError } from "./dom.js";
+import { h, icon, showError } from "./dom.js";
 
 /** @import { Champion } from "./api.js" */
 
-const ANY = { id: "", name: "Any champion" };
+/** @type {Champion} */
+const ANY = { id: "", name: "Any champion", icon: "" };
 
 /**
  * Turns an input with a sibling listbox into a fuzzy champion picker. The
@@ -41,7 +42,7 @@ export function championCombobox(input, list, onChange) {
           event.preventDefault();
           pick(champion);
         },
-      }, champion.name);
+      }, icon(champion.icon), champion.name);
       option.setAttribute("aria-selected", String(index === active));
       return option;
     }));

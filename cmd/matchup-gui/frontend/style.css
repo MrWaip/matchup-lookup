@@ -341,9 +341,9 @@ tbody tr {
 }
 
 /* Narrow windows keep the essentials; the details pane shows everything. */
-@media (width < 1240px) { .col-rank { display: none; } }
-@media (width < 1100px) { .col-opp { display: none; } }
-@media (width < 960px) { .col-player { display: none; } }
+@media (width < 1340px) { .col-rank { display: none; } }
+@media (width < 1180px) { .col-opp { display: none; } }
+@media (width < 1040px) { .col-player { display: none; } }
 
 .badge {
   display: inline-block;
@@ -365,6 +365,33 @@ tbody tr {
   color: var(--muted);
 }
 
+/* ── Icons ────────────────────────────────────────────────────────────── */
+
+img.icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  vertical-align: middle;
+  background: var(--panel-2);
+}
+
+dd img.icon + img.icon { margin-left: 3px; }
+
+.options img.icon { margin-right: 8px; }
+
+.matchup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+img.portrait {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  border: 2px solid var(--line);
+}
+
 /* ── Match details ────────────────────────────────────────────────────── */
 
 .details {
@@ -374,8 +401,9 @@ tbody tr {
   background: var(--panel);
   border-top: 1px solid var(--line);
 
-  & header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-  & h2 { margin: 0 auto 0 0; font-size: 17px; }
+  & header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  & header > div { display: grid; justify-items: start; gap: 4px; margin: 0 auto 0 6px; }
+  & h2 { margin: 0; font-size: 17px; }
 
   & dl {
     display: grid;

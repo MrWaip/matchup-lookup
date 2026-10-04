@@ -40,6 +40,10 @@ type Result struct {
 	Spells, Keystone, SecondaryRunes                                                                 string
 	Win                                                                                              bool
 	CS                                                                                               int
+	// Data Dragon IDs behind Spells, Keystone and SecondaryRunes; 0 if unknown.
+	SpellIDs     [2]int64
+	KeystoneID   int64
+	SecondaryIDs [2]int64
 }
 
 func rankThreshold(tier string) (int, error) {
@@ -155,6 +159,9 @@ func resultFromRow(r store.SearchGamesRow) Result {
 		Spells:         loadoutPair(spellName, r.Summoner1ID, r.Summoner2ID),
 		Keystone:       runeName(r.Keystone),
 		SecondaryRunes: loadoutPair(runeName, r.SecondaryRune1, r.SecondaryRune2),
+		SpellIDs:       [2]int64{r.Summoner1ID.Int64, r.Summoner2ID.Int64},
+		KeystoneID:     r.Keystone.Int64,
+		SecondaryIDs:   [2]int64{r.SecondaryRune1.Int64, r.SecondaryRune2.Int64},
 	}
 }
 

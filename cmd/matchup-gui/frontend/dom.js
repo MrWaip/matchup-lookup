@@ -26,6 +26,21 @@ export function h(tag, props = {}, ...children) {
   return element;
 }
 
+/**
+ * An icon image that removes itself if it cannot load (e.g. offline), so
+ * the text next to it stays readable. An empty src yields nothing.
+ * @param {string} src
+ * @param {string} [title]
+ * @param {string} [className]
+ * @returns {Node | string}
+ */
+export function icon(src, title = "", className = "icon") {
+  if (src === "") return "";
+  const image = h("img", { src, title, alt: "", className, loading: "lazy" });
+  image.onerror = () => image.remove();
+  return image;
+}
+
 /** @param {string} message @param {"info" | "error"} [kind] */
 export function toast(message, kind = "info") {
   const item = h("div", { className: `toast ${kind}`, role: kind === "error" ? "alert" : "status" }, message);
