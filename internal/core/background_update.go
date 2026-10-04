@@ -57,7 +57,7 @@ func (b *BackgroundUpdate) run(ctx context.Context, api RiotAPI, done chan struc
 	defer close(done)
 	store, err := OpenStore(b.path)
 	if err == nil {
-		err = updatePlayers(ctx, store, api, b.setProgress)
+		err = UpdatePlayers(ctx, store, api, backgroundReporter{b})
 		if closeErr := store.Close(); err == nil {
 			err = closeErr
 		}
@@ -70,6 +70,13 @@ func (b *BackgroundUpdate) run(ctx context.Context, api RiotAPI, done chan struc
 	b.state.Err = err
 	b.mu.Unlock()
 }
+
+// backgroundReporter keeps the latest progress for Snapshot; per-item
+// problems are summarized by the final error instead.
+type backgroundReporter struct{ b *BackgroundUpdate }
+
+func (r backgroundReporter) Progress(progress UpdateSnapshot) { r.b.setProgress(progress) }
+func (backgroundReporter) Log(string)                         {}
 
 func (b *BackgroundUpdate) setProgress(progress UpdateSnapshot) {
 	b.mu.Lock()

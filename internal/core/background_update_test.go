@@ -33,7 +33,7 @@ func TestBackgroundUpdateDoesNotBlockSearchAndCanCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := ImportSeeds(store, []Seed{{GameName: "Player", TagLine: "EUW", Region: "euw1"}}); err != nil {
+	if err := ImportSeeds(store, []Seed{{GameName: "Player", TagLine: "EUW", Region: "euw1"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	bg := NewBackgroundUpdate(path)

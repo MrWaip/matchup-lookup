@@ -7,10 +7,7 @@ import (
 	"time"
 )
 
-func TestRateWaitDisplayAndCancellation(t *testing.T) {
-	if got := FormatWait(65 * time.Second); got != "01:05" {
-		t.Fatalf("countdown %q", got)
-	}
+func TestRateWaitCancellation(t *testing.T) {
 	limiter := &rateLimiter{}
 	limiter.block(3 * time.Second)
 	ctx, cancel := context.WithCancel(context.Background())

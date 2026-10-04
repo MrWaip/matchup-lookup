@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,5 +30,11 @@ func TestMenuAndChampionAcceptOneEnter(t *testing.T) {
 	chosen, pickerCmd := champion.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if chosen.(championPicker).selected != "Fiora" || pickerCmd == nil {
 		t.Fatal("champion picker should select current option on one Enter")
+	}
+}
+
+func TestFormatWait(t *testing.T) {
+	if got := FormatWait(65 * time.Second); got != "01:05" {
+		t.Fatalf("countdown %q", got)
 	}
 }

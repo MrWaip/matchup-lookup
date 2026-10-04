@@ -18,16 +18,15 @@ type RiotClient struct {
 	key   string
 	http  *http.Client
 	limit rateLimiter
-	quiet bool
 }
 
 func NewRiotClient(key string) *RiotClient {
 	return &RiotClient{key: key, http: &http.Client{Timeout: 25 * time.Second}}
 }
 
-// ReportWaits sends rate-limit waits to fn instead of printing them.
+// ReportWaits sends rate-limit and Retry-After waits of 2s or more to fn;
+// a zero time means the wait is over.
 func (c *RiotClient) ReportWaits(fn func(until time.Time, reason string)) {
-	c.quiet = true
 	c.limit.onWait = fn
 }
 
@@ -68,9 +67,6 @@ func (c *RiotClient) get(ctx context.Context, host, path string, dst any) error 
 					wait = 0
 				}
 			}
-		}
-		if !c.quiet {
-			fmt.Printf("\r\x1b[2K[RATE LIMIT/RETRY] HTTP %d; waiting %s\n", resp.StatusCode, wait.Round(time.Second))
 		}
 		if resp.StatusCode == 429 {
 			c.limit.block(wait)

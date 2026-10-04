@@ -59,7 +59,7 @@ func run() error {
 		}
 		defer store.Close()
 		fmt.Println("Database:", path)
-		return core.ImportSeeds(store, seeds)
+		return tui.ImportSeeds(store, seeds)
 	case "update":
 		if len(os.Args) != 2 {
 			return fmt.Errorf("update takes no arguments; use import -source to add players")
@@ -79,7 +79,7 @@ func run() error {
 		fmt.Println("Database:", path)
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return core.UpdatePlayers(ctx, store, api.NewRiotClient(key))
+		return tui.UpdatePlayers(ctx, store, api.NewRiotClient(key))
 	case "players":
 		store, err := core.OpenStore(path)
 		if err != nil {

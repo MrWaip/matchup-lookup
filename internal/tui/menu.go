@@ -9,7 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"matchup-lookup/internal/api"
 	"matchup-lookup/internal/core"
 )
 
@@ -116,7 +115,7 @@ func (m menuModel) View() string {
 			right.WriteString(fmt.Sprintf("Old loadouts %d/%d\n", p.Loadouts, p.LoadoutTotal))
 		}
 		if remaining := time.Until(state.WaitUntil); remaining > 0 {
-			right.WriteString("\nRiot limit: " + api.FormatWait(remaining) + "\n")
+			right.WriteString("\nRiot limit: " + FormatWait(remaining) + "\n")
 			right.WriteString(muted.Render(state.WaitReason))
 		}
 	case state.Cancelled:

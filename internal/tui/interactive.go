@@ -185,7 +185,7 @@ func interactiveImport(store *core.Store) error {
 	if err != nil {
 		return err
 	}
-	return core.ImportSeeds(store, seeds)
+	return ImportSeeds(store, seeds)
 }
 
 func interactiveFind(store *core.Store) (bool, error) {

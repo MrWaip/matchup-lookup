@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"sync"
 	"time"
 )
@@ -66,56 +64,27 @@ func (l *rateLimiter) wait(ctx context.Context) error {
 	}
 }
 
+// pauseWithNotice reports long waits to onWait. Only one waiting worker reports
+// at a time so the countdown is not reset by every parallel request.
 func (l *rateLimiter) pauseWithNotice(ctx context.Context, delay time.Duration, reason string) error {
-	if delay < 2*time.Second {
-		return pause(ctx, delay)
-	}
-	if l.onWait != nil {
-		l.onWait(time.Now().Add(delay), reason)
-		defer l.onWait(time.Time{}, "")
+	if delay < 2*time.Second || l.onWait == nil {
 		return pause(ctx, delay)
 	}
 	l.mu.Lock()
 	report := !l.reporting
-	if report {
-		l.reporting = true
-	}
+	l.reporting = true
 	l.mu.Unlock()
 	if !report {
 		return pause(ctx, delay)
 	}
-	info, statErr := os.Stdout.Stat()
-	if statErr != nil || info.Mode()&os.ModeCharDevice == 0 {
-		fmt.Printf("[RATE LIMIT] %s; next request in %s\n", reason, FormatWait(delay))
-		defer func() { l.mu.Lock(); l.reporting = false; l.mu.Unlock() }()
-		return pause(ctx, delay)
-	}
+	l.onWait(time.Now().Add(delay), reason)
 	defer func() {
+		l.onWait(time.Time{}, "")
 		l.mu.Lock()
 		l.reporting = false
 		l.mu.Unlock()
-		fmt.Print("\r\x1b[2K")
 	}()
-	deadline := time.Now().Add(delay)
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil
-		}
-		fmt.Printf("\r\x1b[2K[RATE LIMIT] %s · next request in %s", reason, FormatWait(remaining))
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-func FormatWait(delay time.Duration) string {
-	seconds := int((delay + time.Second - 1) / time.Second)
-	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+	return pause(ctx, delay)
 }
 
 func (l *rateLimiter) block(delay time.Duration) {

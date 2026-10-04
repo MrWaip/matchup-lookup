@@ -68,7 +68,8 @@ type RiotAPI interface {
 	Match(context.Context, string, string) (Match, error)
 }
 
-func ImportSeeds(store *Store, seeds []Seed) error {
+// ImportSeeds queues seeds locally; onSaved, if set, is called after each one.
+func ImportSeeds(store *Store, seeds []Seed, onSaved func(saved, total int)) error {
 	if len(seeds) == 0 {
 		return fmt.Errorf("player list is empty")
 	}
@@ -76,19 +77,16 @@ func ImportSeeds(store *Store, seeds []Seed) error {
 		if err := store.QueueSeed(seed); err != nil {
 			return err
 		}
-		if (i+1)%50 == 0 || i+1 == len(seeds) {
-			fmt.Printf("[IMPORT] Saved %d/%d IDs locally\n", i+1, len(seeds))
+		if onSaved != nil {
+			onSaved(i+1, len(seeds))
 		}
 	}
-	fmt.Println("[IMPORT] Ready. Run update to resolve Riot IDs and fetch matches.")
 	return nil
 }
 
-func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI) error {
-	return updatePlayers(ctx, store, api, nil)
-}
-
-func updatePlayers(ctx context.Context, store *Store, api RiotAPI, onProgress func(UpdateSnapshot)) error {
+// UpdatePlayers resolves pending Riot IDs and collects recent matches.
+// reporter may be nil.
+func UpdatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter UpdateReporter) error {
 	pending, err := store.PendingSeeds()
 	if err != nil {
 		return err
@@ -97,10 +95,9 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, onProgress fu
 	if err != nil {
 		return err
 	}
-	progress := newUpdateProgress(len(pending), len(existing)+len(pending))
-	progress.onChange = onProgress
+	progress := newUpdateProgress(len(pending), len(existing)+len(pending), reporter)
 	progress.render()
-	defer progress.close()
+	defer progress.render()
 	failures, err := resolvePending(ctx, store, api, pending, progress)
 	if err != nil {
 		return err
@@ -125,7 +122,7 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, onProgress fu
 		}
 		rank, err := api.Rank(ctx, player.Region, player.PUUID)
 		if err != nil {
-			progress.logf("\r\x1b[2K[WARN] Rank %s#%s: %v\n", player.GameName, player.TagLine, err)
+			progress.logf("[WARN] Rank %s#%s: %v", player.GameName, player.TagLine, err)
 			failures++
 		} else if err := store.UpdateRank(player.PUUID, rank); err != nil {
 			return err
@@ -136,7 +133,7 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, onProgress fu
 		}
 		ids, err := api.Recent(ctx, player.Region, player.PUUID)
 		if err != nil {
-			progress.logf("\r\x1b[2K[ERROR] Match list %s#%s: %v\n", player.GameName, player.TagLine, err)
+			progress.logf("[ERROR] Match list %s#%s: %v", player.GameName, player.TagLine, err)
 			failures++
 			progress.players++
 			progress.render()
@@ -202,7 +199,7 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, onProgress fu
 		if needs {
 			match, err := api.Match(ctx, ref.Platform, ref.ID)
 			if err != nil {
-				progress.logf("\n[ERROR] Refresh loadout %s: %v\n", ref.ID, err)
+				progress.logf("[ERROR] Refresh loadout %s: %v", ref.ID, err)
 				failures++
 			} else if err := store.SaveMatch(match); err != nil {
 				return err
@@ -235,12 +232,12 @@ func resolvePending(ctx context.Context, store *Store, api RiotAPI, pending []Se
 				}
 				account, err := api.Resolve(ctx, seed)
 				if err != nil {
-					progress.logf("\r\x1b[2K[ERROR] Resolve %s#%s: %v\n", seed.GameName, seed.TagLine, err)
+					progress.logf("[ERROR] Resolve %s#%s: %v", seed.GameName, seed.TagLine, err)
 					outcomes <- matchOutcome{apiFailure: true}
 					continue
 				}
 				if account.PUUID == "" {
-					progress.logf("\r\x1b[2K[ERROR] %s#%s: empty PUUID\n", seed.GameName, seed.TagLine)
+					progress.logf("[ERROR] %s#%s: empty PUUID", seed.GameName, seed.TagLine)
 					outcomes <- matchOutcome{apiFailure: true}
 					continue
 				}
@@ -297,7 +294,7 @@ func collectMatch(ctx context.Context, store *Store, api RiotAPI, player Player,
 	if !cached || needsLoadout {
 		m, err = api.Match(ctx, player.Region, id)
 		if err != nil {
-			progress.logf("\n[ERROR] %s: %v\n", id, err)
+			progress.logf("[ERROR] %s: %v", id, err)
 			return true, nil
 		}
 		if err := store.SaveMatch(m); err != nil {
@@ -318,7 +315,7 @@ func collectMatch(ctx context.Context, store *Store, api RiotAPI, player Player,
 		}
 	}
 	if f == nil {
-		progress.logf("\n[WARN] %s: tracked player absent\n", id)
+		progress.logf("[WARN] %s: tracked player absent", id)
 		return true, nil
 	}
 	o, status := opponent(m, *f)

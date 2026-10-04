@@ -3,18 +3,14 @@ package core
 import (
 	"fmt"
 	"math"
-	"os"
-	"strings"
+	"sync"
 )
 
-type updateProgress struct {
-	resolved, resolveTotal                                                   int
-	players, playerTotal                                                     int
-	matches, matchTotal                                                      int
-	current, currentTotal                                                    int
-	loadouts, loadoutTotal                                                   int
-	lastPlainPlayers, lastPlainResolves, lastPlainMatches, lastPlainLoadouts int
-	onChange                                                                 func(UpdateSnapshot)
+// UpdateReporter receives progress and non-fatal problems from UpdatePlayers.
+// Log may be called concurrently from collection workers.
+type UpdateReporter interface {
+	Progress(UpdateSnapshot)
+	Log(message string)
 }
 
 type UpdateSnapshot struct {
@@ -25,12 +21,24 @@ type UpdateSnapshot struct {
 	Percent                int
 }
 
-func newUpdateProgress(resolveTotal, playerTotal int) *updateProgress {
-	return &updateProgress{resolveTotal: resolveTotal, playerTotal: playerTotal,
-		lastPlainPlayers: -1, lastPlainResolves: -1, lastPlainMatches: -1, lastPlainLoadouts: -1}
+type updateProgress struct {
+	resolved, resolveTotal int
+	players, playerTotal   int
+	matches, matchTotal    int
+	current, currentTotal  int
+	loadouts, loadoutTotal int
+	reporter               UpdateReporter
+	logMu                  sync.Mutex
+}
+
+func newUpdateProgress(resolveTotal, playerTotal int, reporter UpdateReporter) *updateProgress {
+	return &updateProgress{resolveTotal: resolveTotal, playerTotal: playerTotal, reporter: reporter}
 }
 
 func (p *updateProgress) render() {
+	if p.reporter == nil {
+		return
+	}
 	resolveWeight := 0.0
 	if p.resolveTotal > 0 {
 		resolveWeight = 0.1
@@ -54,39 +62,15 @@ func (p *updateProgress) render() {
 	}
 	progress := resolveWeight*resolved + (1-resolveWeight)*collected
 	progress = math.Max(0, math.Min(1, progress))
-	percent := int(math.Round(progress * 100))
-	const width = 20
-	filled := int(math.Round(progress * width))
-	bar := strings.Repeat("█", filled) + strings.Repeat("·", width-filled)
-	line := fmt.Sprintf("[UPDATE] [%s] %3d%%  IDs %d/%d  players %d/%d  matches %d/%d",
-		bar, percent, p.resolved, p.resolveTotal, p.players, p.playerTotal, p.matches, p.matchTotal)
-	if p.loadoutTotal > 0 {
-		line += fmt.Sprintf("  loadouts %d/%d", p.loadouts, p.loadoutTotal)
-	}
-	if p.onChange != nil {
-		p.onChange(UpdateSnapshot{p.resolved, p.resolveTotal, p.players, p.playerTotal, p.matches, p.matchTotal, p.loadouts, p.loadoutTotal, percent})
-		return
-	}
-	info, err := os.Stdout.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
-		if p.players != p.lastPlainPlayers || p.resolved/10 != p.lastPlainResolves/10 || p.matches/20 != p.lastPlainMatches/20 || p.loadouts/20 != p.lastPlainLoadouts/20 {
-			fmt.Println(line)
-			p.lastPlainPlayers, p.lastPlainResolves, p.lastPlainMatches, p.lastPlainLoadouts = p.players, p.resolved, p.matches, p.loadouts
-		}
-		return
-	}
-	fmt.Printf("\r\x1b[2K%s", line)
-}
-
-func (p *updateProgress) close() {
-	p.render()
-	if p.onChange == nil {
-		fmt.Println()
-	}
+	p.reporter.Progress(UpdateSnapshot{p.resolved, p.resolveTotal, p.players, p.playerTotal,
+		p.matches, p.matchTotal, p.loadouts, p.loadoutTotal, int(math.Round(progress * 100))})
 }
 
 func (p *updateProgress) logf(format string, args ...any) {
-	if p.onChange == nil {
-		fmt.Printf(format, args...)
+	if p.reporter == nil {
+		return
 	}
+	p.logMu.Lock()
+	defer p.logMu.Unlock()
+	p.reporter.Log(fmt.Sprintf(format, args...))
 }

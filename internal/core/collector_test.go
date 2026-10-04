@@ -57,7 +57,7 @@ func TestCollectAndSearchOffline(t *testing.T) {
 		"Other":       {PUUID: "other", GameName: "Other", TagLine: "EUW"},
 	}, match: m}
 	seeds := []Seed{{GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1", Champion: "Fiora"}, {GameName: "Other", TagLine: "EUW", Region: "euw1"}}
-	if err := ImportSeeds(store, seeds); err != nil {
+	if err := ImportSeeds(store, seeds, nil); err != nil {
 		t.Fatal(err)
 	}
 	pending, err := store.PendingSeeds()
@@ -65,14 +65,14 @@ func TestCollectAndSearchOffline(t *testing.T) {
 		t.Fatalf("offline import: %d pending, %v", len(pending), err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := UpdatePlayers(context.Background(), store, api); err != nil {
+		if err := UpdatePlayers(context.Background(), store, api, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if api.matchCalls != 1 {
 		t.Fatalf("match fetched %d times; want one", api.matchCalls)
 	}
-	if err := ImportSeeds(store, []Seed{{GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1", Champion: "Camille"}}); err != nil {
+	if err := ImportSeeds(store, []Seed{{GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1", Champion: "Camille"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	champions, err := store.PlayerChampions("fiora")
@@ -143,7 +143,7 @@ func TestCollectMatchRefreshesLegacyLoadoutOnce(t *testing.T) {
 	m.Info.Participants[0].Summoner2ID = 12
 	m.Info.Participants[0].Perks = Perks{Styles: []PerkStyle{{Selections: []PerkSelection{{Perk: 8010}}}, {Selections: []PerkSelection{{Perk: 8473}, {Perk: 8451}}}}}
 	api := &fakeRiot{match: m}
-	progress := newUpdateProgress(0, 1)
+	progress := newUpdateProgress(0, 1, nil)
 	for range 2 {
 		if failed, err := collectMatch(context.Background(), store, api, player, m.Metadata.MatchID, progress); failed || err != nil {
 			t.Fatalf("refresh failed=%v err=%v", failed, err)
@@ -188,7 +188,7 @@ func TestUpdateBackfillsLegacyMatchesOutsideRecentList(t *testing.T) {
 	m.Info.Participants[0].Summoner1ID = 4
 	m.Info.Participants[0].Summoner2ID = 12
 	api := &noRecentRiot{fakeRiot: fakeRiot{match: m}}
-	if err := UpdatePlayers(context.Background(), store, api); err != nil {
+	if err := UpdatePlayers(context.Background(), store, api, nil); err != nil {
 		t.Fatal(err)
 	}
 	if api.matchCalls != 1 {
@@ -234,11 +234,11 @@ func TestParallelFetchAndResumeWithoutAPI(t *testing.T) {
 	}
 	defer store.Close()
 	api := &parallelRiot{fakeRiot: fakeRiot{accounts: map[string]Account{"FioraPlayer": {PUUID: "fiora", GameName: "FioraPlayer", TagLine: "EUW"}}}}
-	if err := ImportSeeds(store, []Seed{{GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}}); err != nil {
+	if err := ImportSeeds(store, []Seed{{GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if err := UpdatePlayers(context.Background(), store, api); err != nil {
+		if err := UpdatePlayers(context.Background(), store, api, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -283,10 +283,10 @@ func TestKDAEqualityFilter(t *testing.T) {
 	m.Info.Participants[1].Deaths = 2
 	m.Info.Participants[1].Assists = 0
 	api := &fakeRiot{accounts: map[string]Account{"FioraPlayer": {PUUID: "fiora", GameName: "FioraPlayer", TagLine: "EUW"}}, match: m}
-	if err := ImportSeeds(store, []Seed{{GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}}); err != nil {
+	if err := ImportSeeds(store, []Seed{{GameName: "FioraPlayer", TagLine: "EUW", Region: "euw1"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdatePlayers(context.Background(), store, api); err != nil {
+	if err := UpdatePlayers(context.Background(), store, api, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
