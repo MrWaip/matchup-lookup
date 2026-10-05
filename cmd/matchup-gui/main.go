@@ -1,4 +1,4 @@
-// Command matchup-gui is the desktop version of matchup-lookup.
+// Command matchup-gui is the desktop version of MatchupFinder.gg.
 // Build it with `just build-gui` (wails build); plain `go build` lacks the
 // Wails build tags and Windows resources.
 package main

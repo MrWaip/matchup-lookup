@@ -83,6 +83,14 @@ type PlayerChampion struct {
 	Champion    string
 }
 
+type PlayerControl struct {
+	Region   string
+	GameName string
+	TagLine  string
+	Enabled  int64
+	Tags     string
+}
+
 type PlayerSeed struct {
 	GameName      string
 	TagLine       string

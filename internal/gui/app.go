@@ -42,7 +42,7 @@ func Run(path string, assets fs.FS) error {
 	}
 	app := &App{path: path, store: store, background: core.NewBackgroundUpdate(path)}
 	return wails.Run(&options.App{
-		Title:            "Matchup Lookup",
+		Title:            "MatchupFinder.gg",
 		Width:            1280,
 		Height:           800,
 		MinWidth:         900,
@@ -349,8 +349,11 @@ func (a *App) ImportPlayers(source string) (int, error) {
 type PlayerRow struct {
 	RiotID    string   `json:"riotId"`
 	Region    string   `json:"region"`
+	Server    string   `json:"server"`
 	Rank      string   `json:"rank"`
 	Champions []string `json:"champions"`
+	Tags      []string `json:"tags"`
+	Enabled   bool     `json:"enabled"`
 	Pending   bool     `json:"pending"`
 }
 
@@ -360,12 +363,17 @@ func (a *App) Players() ([]PlayerRow, error) {
 		if err != nil {
 			return nil, err
 		}
-		pending, err := s.PendingSeeds()
+		pending, err := s.AllPendingSeeds()
 		if err != nil {
 			return nil, err
 		}
 		rows := make([]PlayerRow, 0, len(players)+len(pending))
 		for _, p := range players {
+			seed := core.Seed{GameName: p.GameName, TagLine: p.TagLine, Region: p.Region}
+			control, err := s.Control(seed)
+			if err != nil {
+				return nil, err
+			}
 			champions, err := s.PlayerChampions(p.PUUID)
 			if err != nil {
 				return nil, err
@@ -374,15 +382,51 @@ func (a *App) Players() ([]PlayerRow, error) {
 			if rank == "" {
 				rank = "Unranked"
 			}
-			rows = append(rows, PlayerRow{RiotID: p.GameName + "#" + p.TagLine, Region: core.PlatformLabel(p.Region),
-				Rank: rank, Champions: champions})
+			rows = append(rows, PlayerRow{RiotID: p.GameName + "#" + p.TagLine, Region: p.Region, Server: core.PlatformLabel(p.Region),
+				Rank: rank, Champions: champions, Tags: control.Tags, Enabled: control.Enabled})
 		}
 		for _, seed := range pending {
-			rows = append(rows, PlayerRow{RiotID: seed.GameName + "#" + seed.TagLine, Region: core.PlatformLabel(seed.Region),
-				Champions: []string{}, Pending: true})
+			control, err := s.Control(seed)
+			if err != nil {
+				return nil, err
+			}
+			champions, err := s.SeedChampions(seed)
+			if err != nil {
+				return nil, err
+			}
+			rows = append(rows, PlayerRow{RiotID: seed.GameName + "#" + seed.TagLine, Region: seed.Region, Server: core.PlatformLabel(seed.Region),
+				Champions: champions, Tags: control.Tags, Enabled: control.Enabled, Pending: true})
 		}
 		return rows, nil
 	})
+}
+
+func (a *App) SavePlayer(gameName, tagLine, region string, enabled bool, tags, champions []string) error {
+	_, err := withStore(a, func(s *core.Store) (struct{}, error) {
+		return struct{}{}, s.SaveManagedPlayer(core.Seed{GameName: gameName, TagLine: tagLine, Region: region}, enabled, tags, champions)
+	})
+	return err
+}
+
+func (a *App) DeletePlayer(gameName, tagLine, region string) error {
+	_, err := withStore(a, func(s *core.Store) (struct{}, error) {
+		return struct{}{}, s.DeleteManagedPlayer(core.Seed{GameName: gameName, TagLine: tagLine, Region: region})
+	})
+	return err
+}
+
+func (a *App) SetPlayersEnabled(players []core.PlayerIdentity, enabled bool) error {
+	_, err := withStore(a, func(s *core.Store) (struct{}, error) {
+		return struct{}{}, s.SetPlayersEnabled(players, enabled)
+	})
+	return err
+}
+
+func (a *App) DeletePlayers(players []core.PlayerIdentity) error {
+	_, err := withStore(a, func(s *core.Store) (struct{}, error) {
+		return struct{}{}, s.DeleteManagedPlayers(players)
+	})
+	return err
 }
 
 // OpenReplay asks the running League Client to download and play a replay.
@@ -401,7 +445,7 @@ var dbFilter = []runtime.FileFilter{{DisplayName: "SQLite database (*.db)", Patt
 func (a *App) ExportDatabase() (string, error) {
 	output, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "Export database",
-		DefaultFilename: "matchup-lookup-" + time.Now().Format("20060102-150405") + ".db",
+		DefaultFilename: "matchupfinder-" + time.Now().Format("20060102-150405") + ".db",
 		Filters:         dbFilter,
 	})
 	if err != nil || output == "" {

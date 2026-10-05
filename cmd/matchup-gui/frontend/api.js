@@ -108,9 +108,19 @@
  * @typedef {object} PlayerRow
  * @property {string} riotId
  * @property {string} region
+ * @property {string} server
  * @property {string} rank
  * @property {string[]} champions
+ * @property {string[]} tags
+ * @property {boolean} enabled
  * @property {boolean} pending
+ */
+
+/**
+ * @typedef {object} PlayerIdentity
+ * @property {string} gameName
+ * @property {string} tagLine
+ * @property {string} region
  */
 
 /**
@@ -126,6 +136,10 @@
  * @property {(id: number) => Promise<void>} RemoveRiotKey
  * @property {(source: string) => Promise<number>} ImportPlayers
  * @property {() => Promise<PlayerRow[]>} Players
+ * @property {(gameName: string, tagLine: string, region: string, enabled: boolean, tags: string[], champions: string[]) => Promise<void>} SavePlayer
+ * @property {(gameName: string, tagLine: string, region: string) => Promise<void>} DeletePlayer
+ * @property {(players: PlayerIdentity[], enabled: boolean) => Promise<void>} SetPlayersEnabled
+ * @property {(players: PlayerIdentity[]) => Promise<void>} DeletePlayers
  * @property {(matchId: string) => Promise<void>} OpenReplay
  * @property {() => Promise<string>} ExportDatabase
  * @property {() => Promise<string>} ImportDatabase
@@ -150,6 +164,14 @@ export const removeRiotKey = (id) => app().RemoveRiotKey(id);
 /** @param {string} source */
 export const importPlayers = (source) => app().ImportPlayers(source);
 export const players = () => app().Players();
+/** @param {string} gameName @param {string} tagLine @param {string} region @param {boolean} enabled @param {string[]} tags @param {string[]} champions */
+export const savePlayer = (gameName, tagLine, region, enabled, tags, champions) => app().SavePlayer(gameName, tagLine, region, enabled, tags, champions);
+/** @param {string} gameName @param {string} tagLine @param {string} region */
+export const deletePlayer = (gameName, tagLine, region) => app().DeletePlayer(gameName, tagLine, region);
+/** @param {PlayerIdentity[]} selected @param {boolean} enabled */
+export const setPlayersEnabled = (selected, enabled) => app().SetPlayersEnabled(selected, enabled);
+/** @param {PlayerIdentity[]} selected */
+export const deletePlayers = (selected) => app().DeletePlayers(selected);
 /** @param {string} matchId */
 export const openReplay = (matchId) => app().OpenReplay(matchId);
 export const exportDatabase = () => app().ExportDatabase();

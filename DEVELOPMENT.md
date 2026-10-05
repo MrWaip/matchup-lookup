@@ -1,18 +1,18 @@
-# Matchup Lookup setup and usage
+# MatchupFinder.gg setup and usage
 
-Matchup Lookup finds recent League of Legends ranked Solo/Duo lane matchups among the players you track. Add a Riot API key and a player list once, update matches, and search for games worth watching.
+MatchupFinder.gg finds recent League of Legends ranked Solo/Duo lane matchups among the players you track. Add a Riot API key and a player list once, update matches, and search for games worth watching.
 
 ## Get a Riot API key
 
 1. Sign in at the [Riot Developer Portal](https://developer.riotgames.com/). Riot gives you a key on your portal dashboard.
-2. In Matchup Lookup, open **Settings → Riot API keys**. Paste the key and click **Add key**.
+2. In MatchupFinder.gg, open **Settings → Riot API keys**. Paste the key and click **Add key**.
 3. If an update says the key expired or was rejected, return to the portal, reset or copy a current key, and add it in Settings. Data already collected remains available to search.
 
 Riot's standard portal key expires every 24 hours. For longer personal use, Riot describes [personal API keys and how to request one](https://developer.riotgames.com/docs/portal). Your key is saved on this computer; keep database exports private because they include it.
 
 ## Choose players to track
 
-**Try the included list:** In **Settings → Players**, keep the source already shown in the import field and click **Import**. It contains 200 Fiora players on EUW. Importing a list only adds Riot IDs; **Update matches** fetches their games.
+**Try the included list:** In **Players**, keep the source already shown in the import field and click **Import**. It contains 200 Fiora players on EUW. Importing a list only adds Riot IDs; **Update matches** fetches their games.
 
 **Make your own list:** Collect Riot IDs from your League friends list, match history, or players you want to study. A Riot ID has a game name and tag, such as `ExamplePlayer#EUW`. The tag is part of the ID; the `region` field is the server where that player plays. [Riot explains the two parts of a Riot ID](https://support.riotgames.com/en-us/riot/account/changing-your-riot-id).
 
@@ -33,7 +33,7 @@ Or save a JSON file such as `players.json`:
 ]
 ```
 
-Replace the example IDs with real ones. Enter the file path in **Settings → Players** and click **Import**. You can also import a folder of JSON/CSV files or an HTTP(S) link to one. `champion` is an optional label for organizing your list; search filters use the champion actually played in each match. Reimport a list when you add players.
+Replace the example IDs with real ones. Enter the file path in **Players** and click **Import**. You can also import a folder of JSON/CSV files or an HTTP(S) link to one. `champion` is an optional label for organizing your list; search filters use the champion actually played in each match. Reimport a list when you add players. You can also add one Riot ID directly in **Players** and set optional tags and champions. Use Pause to skip a player in future updates without losing saved games; select multiple players for bulk Pause, Enable, or Delete.
 
 ## Search and watch
 

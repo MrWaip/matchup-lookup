@@ -166,7 +166,7 @@ func (m replayBrowserModel) View() string {
 	}
 	page := m.cursor/pageSize + 1
 	pages := (len(m.rows) + pageSize - 1) / pageSize
-	return title.Render("◆ MATCHUP LOOKUP") + "\n" + muted.Render(fmt.Sprintf("Page %d/%d · %d matches", page, pages, len(m.rows))) + "\n" +
+	return title.Render("◆ MATCHUPFINDER.GG") + "\n" + muted.Render(fmt.Sprintf("Page %d/%d · %d matches", page, pages, len(m.rows))) + "\n" +
 		body + "\n" + muted.Render("↑/↓ choose · ←/→ page · Enter replay · Esc menu") + "\n"
 }
 

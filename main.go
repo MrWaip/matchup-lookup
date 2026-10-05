@@ -185,7 +185,7 @@ func run() error {
 }
 
 func usage() {
-	fmt.Println("matchup-lookup " + core.Version() + `: recent Solo/Duo champion matchups
+	fmt.Println("MatchupFinder.gg " + core.Version() + `: recent Solo/Duo champion matchups
 
 Run without a command for the interactive menu.
 

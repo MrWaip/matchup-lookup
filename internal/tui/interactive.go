@@ -69,7 +69,7 @@ func RunInteractive(path string) error {
 			}
 		case "db_export":
 			var output string
-			output = fmt.Sprintf("matchup-lookup-%s.db", time.Now().Format("20060102-150405"))
+			output = fmt.Sprintf("matchupfinder-%s.db", time.Now().Format("20060102-150405"))
 			err = huh.NewInput().Title("Export snapshot path").Value(&output).Run()
 			if err == nil {
 				err = core.ExportDatabase(store, strings.TrimSpace(output))

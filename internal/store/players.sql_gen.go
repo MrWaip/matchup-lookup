@@ -34,6 +34,72 @@ func (q *Queries) CountPlayers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deletePlayer = `-- name: DeletePlayer :exec
+DELETE FROM players WHERE puuid = ?
+`
+
+func (q *Queries) DeletePlayer(ctx context.Context, puuid string) error {
+	_, err := q.db.ExecContext(ctx, deletePlayer, puuid)
+	return err
+}
+
+const deletePlayerChampions = `-- name: DeletePlayerChampions :exec
+DELETE FROM player_champions WHERE player_puuid = ?
+`
+
+func (q *Queries) DeletePlayerChampions(ctx context.Context, playerPuuid string) error {
+	_, err := q.db.ExecContext(ctx, deletePlayerChampions, playerPuuid)
+	return err
+}
+
+const deletePlayerChecks = `-- name: DeletePlayerChecks :exec
+DELETE FROM match_checks WHERE player_puuid = ?
+`
+
+func (q *Queries) DeletePlayerChecks(ctx context.Context, playerPuuid string) error {
+	_, err := q.db.ExecContext(ctx, deletePlayerChecks, playerPuuid)
+	return err
+}
+
+const deletePlayerControl = `-- name: DeletePlayerControl :exec
+DELETE FROM player_controls WHERE region = ? AND game_name = ? COLLATE NOCASE AND tag_line = ? COLLATE NOCASE
+`
+
+type DeletePlayerControlParams struct {
+	Region   string
+	GameName string
+	TagLine  string
+}
+
+func (q *Queries) DeletePlayerControl(ctx context.Context, arg DeletePlayerControlParams) error {
+	_, err := q.db.ExecContext(ctx, deletePlayerControl, arg.Region, arg.GameName, arg.TagLine)
+	return err
+}
+
+const deletePlayerGames = `-- name: DeletePlayerGames :exec
+DELETE FROM tracked_games WHERE player_puuid = ?
+`
+
+func (q *Queries) DeletePlayerGames(ctx context.Context, playerPuuid string) error {
+	_, err := q.db.ExecContext(ctx, deletePlayerGames, playerPuuid)
+	return err
+}
+
+const deleteSeedIdentity = `-- name: DeleteSeedIdentity :exec
+DELETE FROM player_seeds WHERE region = ? AND game_name = ? COLLATE NOCASE AND tag_line = ? COLLATE NOCASE
+`
+
+type DeleteSeedIdentityParams struct {
+	Region   string
+	GameName string
+	TagLine  string
+}
+
+func (q *Queries) DeleteSeedIdentity(ctx context.Context, arg DeleteSeedIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, deleteSeedIdentity, arg.Region, arg.GameName, arg.TagLine)
+	return err
+}
+
 const findPlayerByRiotID = `-- name: FindPlayerByRiotID :one
 SELECT puuid, game_name, tag_line, region, rank_tier, rank_division, league_points
 FROM players
@@ -101,9 +167,126 @@ func (q *Queries) GetPlayer(ctx context.Context, puuid string) (GetPlayerRow, er
 	return i, err
 }
 
-const listPendingSeeds = `-- name: ListPendingSeeds :many
+const getPlayerControl = `-- name: GetPlayerControl :one
+SELECT enabled, tags FROM player_controls
+WHERE region = ? AND game_name = ? COLLATE NOCASE AND tag_line = ? COLLATE NOCASE
+`
+
+type GetPlayerControlParams struct {
+	Region   string
+	GameName string
+	TagLine  string
+}
+
+type GetPlayerControlRow struct {
+	Enabled int64
+	Tags    string
+}
+
+func (q *Queries) GetPlayerControl(ctx context.Context, arg GetPlayerControlParams) (GetPlayerControlRow, error) {
+	row := q.db.QueryRowContext(ctx, getPlayerControl, arg.Region, arg.GameName, arg.TagLine)
+	var i GetPlayerControlRow
+	err := row.Scan(&i.Enabled, &i.Tags)
+	return i, err
+}
+
+const listActivePlayers = `-- name: ListActivePlayers :many
+SELECT p.puuid, p.game_name, p.tag_line, p.region, p.rank_tier, p.rank_division, p.league_points
+FROM players p LEFT JOIN player_controls c
+  ON c.region = p.region AND c.game_name = p.game_name COLLATE NOCASE AND c.tag_line = p.tag_line COLLATE NOCASE
+WHERE COALESCE(c.enabled, 1) = 1
+ORDER BY p.game_name COLLATE NOCASE, p.tag_line COLLATE NOCASE
+`
+
+type ListActivePlayersRow struct {
+	Puuid        string
+	GameName     string
+	TagLine      string
+	Region       string
+	RankTier     string
+	RankDivision string
+	LeaguePoints int64
+}
+
+func (q *Queries) ListActivePlayers(ctx context.Context) ([]ListActivePlayersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listActivePlayers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActivePlayersRow{}
+	for rows.Next() {
+		var i ListActivePlayersRow
+		if err := rows.Scan(
+			&i.Puuid,
+			&i.GameName,
+			&i.TagLine,
+			&i.Region,
+			&i.RankTier,
+			&i.RankDivision,
+			&i.LeaguePoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllPendingSeeds = `-- name: ListAllPendingSeeds :many
 SELECT game_name, tag_line, region, source FROM player_seeds
 WHERE resolved_puuid = ''
+GROUP BY region, game_name, tag_line
+ORDER BY region, game_name
+`
+
+type ListAllPendingSeedsRow struct {
+	GameName string
+	TagLine  string
+	Region   string
+	Source   string
+}
+
+func (q *Queries) ListAllPendingSeeds(ctx context.Context) ([]ListAllPendingSeedsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllPendingSeeds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllPendingSeedsRow{}
+	for rows.Next() {
+		var i ListAllPendingSeedsRow
+		if err := rows.Scan(
+			&i.GameName,
+			&i.TagLine,
+			&i.Region,
+			&i.Source,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingSeeds = `-- name: ListPendingSeeds :many
+SELECT game_name, tag_line, region, source FROM player_seeds
+WHERE resolved_puuid = '' AND NOT EXISTS (
+    SELECT 1 FROM player_controls c WHERE c.region = player_seeds.region
+    AND c.game_name = player_seeds.game_name COLLATE NOCASE
+    AND c.tag_line = player_seeds.tag_line COLLATE NOCASE AND c.enabled = 0)
 GROUP BY region, game_name, tag_line
 ORDER BY region, game_name
 `
@@ -269,6 +452,31 @@ func (q *Queries) ResolveSeed(ctx context.Context, arg ResolveSeedParams) error 
 		arg.Region,
 		arg.GameName,
 		arg.TagLine,
+	)
+	return err
+}
+
+const savePlayerControl = `-- name: SavePlayerControl :exec
+INSERT INTO player_controls (region, game_name, tag_line, enabled, tags)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (region, game_name, tag_line) DO UPDATE SET enabled = excluded.enabled, tags = excluded.tags
+`
+
+type SavePlayerControlParams struct {
+	Region   string
+	GameName string
+	TagLine  string
+	Enabled  int64
+	Tags     string
+}
+
+func (q *Queries) SavePlayerControl(ctx context.Context, arg SavePlayerControlParams) error {
+	_, err := q.db.ExecContext(ctx, savePlayerControl,
+		arg.Region,
+		arg.GameName,
+		arg.TagLine,
+		arg.Enabled,
+		arg.Tags,
 	)
 	return err
 }

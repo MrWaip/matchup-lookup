@@ -93,7 +93,7 @@ func (m menuModel) View() string {
 	selected := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	var left strings.Builder
-	left.WriteString(title.Render("◆ MATCHUP LOOKUP") + "  " + muted.Render(core.Version()) + "\n\n")
+	left.WriteString(title.Render("◆ MATCHUPFINDER.GG") + "  " + muted.Render(core.Version()) + "\n\n")
 	left.WriteString("What would you like to do?\n\n")
 	for i, option := range menuOptions {
 		if i == m.cursor {

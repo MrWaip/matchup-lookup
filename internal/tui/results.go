@@ -13,7 +13,7 @@ func PrintResults(r core.SearchResult) {
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	red := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	fmt.Println(title.Render("◆ MATCHUP LOOKUP"))
+	fmt.Println(title.Render("◆ MATCHUPFINDER.GG"))
 	fmt.Printf("Patch %s  ·  Players %d  ·  Stored %d  ·  Matching %d  ·  %s  ·  %s\n\n",
 		r.Patch, r.Players, r.Stored, r.Matching, green.Render(fmt.Sprintf("Wins %d", r.Wins)), red.Render(fmt.Sprintf("Losses %d", r.Matching-r.Wins)))
 	if len(r.Results) == 0 {

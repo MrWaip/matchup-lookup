@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Matchup Lookup</title>
+  <title>MatchupFinder.gg</title>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="main.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">◆</span> Matchup Lookup <span class="version" id="version"></span></div>
+    <div class="brand"><span class="brand-mark">◆</span> MatchupFinder.gg <span class="version" id="version"></span></div>
     <div class="update" id="update" data-state="idle">
       <div class="update-text">
         <span id="update-label">No update running</span>
@@ -18,6 +18,7 @@
       <div class="progress" aria-hidden="true"><div class="progress-fill" id="update-bar"></div></div>
     </div>
     <button type="button" class="primary" id="update-button">Update matches</button>
+    <button type="button" id="players-button">Players</button>
     <button type="button" class="icon" id="settings-button" title="Settings" aria-label="Settings">⚙</button>
   </header>
 
@@ -111,11 +112,66 @@
     </main>
   </div>
 
+  <main class="player-view" id="player-view" hidden>
+    <header class="player-view-head">
+      <div><h1>Players</h1><p class="muted">Choose whose ranked games to collect. Paused players keep their saved results.</p></div>
+      <button type="button" id="back-to-matches">← Back to matches</button>
+    </header>
+    <div class="player-view-grid">
+      <section class="player-editor">
+        <h2>Add or edit a player</h2>
+        <p class="muted">Enter a Riot ID, server, optional tags and champions. Matches are fetched by <b>Update matches</b>.</p>
+        <form id="player-form" class="player-form">
+          <label>Game name<input name="gameName" placeholder="ExamplePlayer" required spellcheck="false"></label>
+          <label>Riot tag<input name="tagLine" placeholder="EUW" required spellcheck="false"></label>
+          <label>Server<select name="region" id="player-region" required></select></label>
+          <label>Tags <span class="muted">(comma separated)</span><input name="tags" placeholder="coach, top lane" spellcheck="false"></label>
+          <label>Champions <span class="muted">(comma separated)</span><input name="champions" placeholder="Fiora, Camille" spellcheck="false"></label>
+          <div class="player-form-actions">
+            <label class="check"><input type="checkbox" name="enabled" checked> Include in updates</label>
+            <button class="primary" id="save-player">Add player</button>
+            <button type="button" id="cancel-player-edit" hidden>Cancel edit</button>
+          </div>
+        </form>
+        <h2>Import a list</h2>
+        <p class="muted">JSON/CSV file, folder, or URL.</p>
+        <form class="row" id="import-form">
+          <input name="source" spellcheck="false" required>
+          <button class="primary">Import</button>
+        </form>
+      </section>
+      <section class="player-list-panel">
+        <h2 id="players-summary">Players</h2>
+        <input id="player-search" type="search" placeholder="Find a Riot ID, tag, or champion" aria-label="Find players">
+        <p class="muted selection-hint">Click rows to select or deselect · Shift for a range · Ctrl/Cmd also toggles</p>
+        <div class="player-bulk">
+          <button type="button" class="link" id="select-visible">Select visible</button>
+          <button type="button" class="link" id="clear-selection">Clear</button>
+          <span class="muted" id="selected-count">0 selected</span>
+          <button type="button" id="pause-selected" disabled>Pause selected</button>
+          <button type="button" id="enable-selected" disabled>Enable selected</button>
+          <button type="button" id="delete-selected" disabled>Delete selected</button>
+        </div>
+        <ul class="players" id="players"></ul>
+      </section>
+    </div>
+  </main>
+
   <dialog class="settings" id="settings">
     <form method="dialog" class="dialog-head">
       <h2>Settings</h2>
       <button class="icon" aria-label="Close">✕</button>
     </form>
+
+    <section>
+      <h3>Appearance</h3>
+      <label for="theme">Theme</label>
+      <select id="theme" aria-label="Theme">
+        <option value="system">System</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </section>
 
     <section>
       <h3>Riot API keys</h3>
@@ -130,15 +186,8 @@
 
     <section>
       <h3>Players</h3>
-      <p class="muted">Import Riot IDs from a JSON/CSV file, folder, or URL. Matches are fetched by <b>Update matches</b>.</p>
-      <form class="row" id="import-form">
-        <input name="source" spellcheck="false" required>
-        <button class="primary">Import</button>
-      </form>
-      <details class="players" id="players-details">
-        <summary id="players-summary">Tracked players</summary>
-        <ul id="players"></ul>
-      </details>
+      <p class="muted">Add, pause, edit, import or delete tracked Riot IDs in the Players view.</p>
+      <button type="button" id="settings-players">Manage players</button>
     </section>
 
     <section>

@@ -105,7 +105,7 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter Upda
 	if err != nil {
 		return err
 	}
-	existing, err := store.ListPlayers()
+	existing, err := store.ListActivePlayers()
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func updatePlayers(ctx context.Context, store *Store, api RiotAPI, reporter Upda
 	if err != nil {
 		return err
 	}
-	players, err := store.ListPlayers()
+	players, err := store.ListActivePlayers()
 	if err != nil {
 		return err
 	}

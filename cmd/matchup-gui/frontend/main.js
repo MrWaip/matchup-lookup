@@ -2,7 +2,7 @@ import * as api from "./api.js";
 import { championCombobox } from "./combobox.js";
 import { $, h, icon, showError, toast } from "./dom.js";
 
-/** @import { Filters, Game, Key, Overview, SearchResult, UpdateStatus } from "./api.js" */
+/** @import { Filters, Game, Key, Overview, PlayerRow, SearchResult, UpdateStatus } from "./api.js" */
 
 const form = $("#filters", HTMLFormElement);
 const regionSelect = $("#region", HTMLSelectElement);
@@ -10,10 +10,31 @@ const gamesBody = $("#games", HTMLTableSectionElement);
 const tableWrap = $("#table-wrap", HTMLElement);
 const details = $("#details", HTMLElement);
 const settings = $("#settings", HTMLDialogElement);
+const playerView = $("#player-view", HTMLElement);
+const matchLayout = $(".layout", HTMLElement);
 const updateButton = $("#update-button", HTMLButtonElement);
+const playerForm = $("#player-form", HTMLFormElement);
+/** @type {PlayerRow | undefined} */
+let editingPlayer;
 
-const dateFormat = new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-const longDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const longDateFormat = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" });
+
+const themePreference = window.matchMedia("(prefers-color-scheme: light)");
+const themeSelect = $("#theme", HTMLSelectElement);
+const savedTheme = localStorage.getItem("matchupfinder.theme");
+themeSelect.value = savedTheme === "light" || savedTheme === "dark" ? savedTheme : "system";
+function applyTheme() {
+  document.documentElement.dataset.theme = themeSelect.value === "system"
+    ? themePreference.matches ? "light" : "dark"
+    : themeSelect.value;
+}
+themeSelect.addEventListener("change", () => {
+  localStorage.setItem("matchupfinder.theme", themeSelect.value);
+  applyTheme();
+});
+themePreference.addEventListener("change", applyTheme);
+applyTheme();
 
 /** @type {Game[]} */
 let games = [];
@@ -21,6 +42,12 @@ let selected = -1;
 let searchRequest = 0;
 /** @type {Overview | undefined} */
 let currentOverview;
+/** @type {PlayerRow[]} */
+let listedPlayers = [];
+/** @type {PlayerRow[]} */
+let visiblePlayers = [];
+const selectedPlayers = new Set();
+let selectionAnchor = "";
 
 const champion = championCombobox($("#champion", HTMLInputElement), $("#champion-list", HTMLUListElement), () => runSearch());
 const opponent = championCombobox($("#opponent", HTMLInputElement), $("#opponent-list", HTMLUListElement), () => runSearch());
@@ -329,20 +356,259 @@ async function openSettings() {
 
 async function renderSettings() {
   try {
-    const [overview, players] = await Promise.all([api.overview(), api.players()]);
+    const overview = await api.overview();
     renderKeys(overview.keys);
-    const source = $("#import-form input[name=source]", HTMLInputElement);
-    source.value ||= overview.playersSource;
     $("#db-path", HTMLElement).textContent = overview.dbPath;
-    $("#players-summary", HTMLElement).textContent = `Tracked players: ${overview.players}` + (overview.pending > 0 ? ` · ${overview.pending} pending Riot ID checks` : "");
-    $("#players", HTMLUListElement).replaceChildren(...players.map((player) => h("li", {},
-      h("b", {}, player.riotId),
-      h("span", { className: "muted" }, ` ${player.region} · ${player.pending ? "pending" : player.rank}`),
-      player.champions.length > 0 ? h("span", { className: "tags" }, player.champions.join(", ")) : "",
-    )));
   } catch (error) {
     showError(error);
   }
+}
+
+async function openPlayerView() {
+  if (settings.open) settings.close();
+  matchLayout.hidden = true;
+  playerView.hidden = false;
+  await renderPlayers();
+}
+
+$("#players-button", HTMLButtonElement).addEventListener("click", openPlayerView);
+$("#settings-players", HTMLButtonElement).addEventListener("click", openPlayerView);
+$("#back-to-matches", HTMLButtonElement).addEventListener("click", () => {
+  playerView.hidden = true;
+  matchLayout.hidden = false;
+});
+
+async function renderPlayers() {
+  try {
+    const [overview, players] = await Promise.all([api.overview(), api.players()]);
+    listedPlayers = players;
+    const available = new Set(players.map(playerKey));
+    for (const key of selectedPlayers) if (!available.has(key)) selectedPlayers.delete(key);
+    if (!available.has(selectionAnchor)) selectionAnchor = "";
+    const source = $("#import-form input[name=source]", HTMLInputElement);
+    source.value ||= overview.playersSource;
+    const region = $("#player-region", HTMLSelectElement);
+    const selectedRegion = region.value || "euw1";
+    region.replaceChildren(...overview.servers.map((server) => h("option", { value: server.id }, server.label)));
+    region.value = selectedRegion;
+    renderPlayerList();
+  } catch (error) {
+    showError(error);
+  }
+}
+
+/** @param {string} value */
+const normalized = (value) => value.toLocaleLowerCase("en-US").normalize("NFKD").replace(/[^\p{L}\p{N}]/gu, "");
+
+/** @param {string} query @param {string} value */
+function fuzzyScore(query, value) {
+  const q = normalized(query);
+  const text = normalized(value);
+  if (!q) return 0;
+  if (text === q) return 1000;
+  if (text.startsWith(q)) return 800 - text.length;
+  const index = text.indexOf(q);
+  if (index >= 0) return 600 - index - text.length;
+  let matched = 0, last = -2, score = 300;
+  for (let i = 0; i < text.length && matched < q.length; i++) {
+    if (text[i] !== q[matched]) continue;
+    score += i === last + 1 ? 12 : -(i - last - 1);
+    last = i;
+    matched++;
+  }
+  return matched === q.length ? score - text.length : -1;
+}
+
+function renderPlayerList() {
+  const query = $("#player-search", HTMLInputElement).value.trim();
+  $("#players-summary", HTMLElement).textContent = `${listedPlayers.length} players · ${listedPlayers.filter((player) => player.enabled).length} enabled`;
+  const ranked = listedPlayers.map((player) => ({ player, score: Math.max(...[player.riotId, player.server, ...player.tags, ...player.champions].map((value) => fuzzyScore(query, value))) }))
+    .filter(({ score }) => score >= 0)
+    .sort((a, b) => b.score - a.score || a.player.riotId.localeCompare(b.player.riotId));
+  visiblePlayers = ranked.map(({ player }) => player);
+  $("#players", HTMLUListElement).replaceChildren(...ranked.map(({ player }) => {
+      const [gameName, tagLine] = splitRiotID(player.riotId);
+      return h("li", { className: `${player.enabled ? "" : "disabled"}${selectedPlayers.has(playerKey(player)) ? " selected" : ""}`.trim(), onclick: (event) => {
+        if (event.target instanceof Element && event.target.closest("button")) return;
+        selectPlayer(player, event);
+      } },
+        h("input", { type: "checkbox", checked: selectedPlayers.has(playerKey(player)), ariaLabel: `Select ${player.riotId}`, onclick: (event) => {
+          event.stopPropagation();
+          selectPlayer(player, event);
+        } }),
+        h("div", { className: "player-info" },
+          h("b", {}, player.riotId),
+          h("span", { className: "muted" }, ` · ${player.server} · ${player.pending ? "pending" : player.rank}${player.enabled ? "" : " · paused"}`),
+          player.tags.length || player.champions.length ? h("span", { className: "tags" },
+            [player.tags.length ? `Tags: ${player.tags.join(", ")}` : "", player.champions.length ? `Champions: ${player.champions.join(", ")}` : ""].filter(Boolean).join(" · ")) : "",
+        ),
+        h("div", { className: "player-actions" },
+          h("button", { type: "button", className: "link", onclick: () => editPlayer(player) }, "Edit"),
+          h("button", { type: "button", className: "link", onclick: () => togglePlayer(player) }, player.enabled ? "Pause" : "Enable"),
+          h("button", { type: "button", className: "link loss", onclick: () => removePlayer(gameName, tagLine, player.region) }, "Delete"),
+        ),
+      );
+    }));
+  if (ranked.length === 0) $("#players", HTMLUListElement).append(h("li", { className: "muted" }, "No players found"));
+  renderSelection();
+}
+
+$("#player-search", HTMLInputElement).addEventListener("input", renderPlayerList);
+
+/** @param {PlayerRow} player */
+const playerKey = (player) => `${player.region}\u0000${player.riotId.toLowerCase()}`;
+
+/** @param {PlayerRow} player @param {MouseEvent} event */
+function selectPlayer(player, event) {
+  const key = playerKey(player);
+  const index = visiblePlayers.findIndex((item) => playerKey(item) === key);
+  const anchor = visiblePlayers.findIndex((item) => playerKey(item) === selectionAnchor);
+  if (event.shiftKey && anchor >= 0) {
+    for (let i = Math.min(index, anchor); i <= Math.max(index, anchor); i++) {
+      const item = visiblePlayers[i];
+      if (item) selectedPlayers.add(playerKey(item));
+    }
+  } else {
+    if (selectedPlayers.has(key)) selectedPlayers.delete(key);
+    else selectedPlayers.add(key);
+    selectionAnchor = key;
+  }
+  renderPlayerList();
+}
+
+function renderSelection() {
+  const count = selectedPlayers.size;
+  $("#selected-count", HTMLElement).textContent = `${count} selected`;
+  for (const id of ["pause-selected", "enable-selected", "delete-selected"]) $("#" + id, HTMLButtonElement).disabled = count === 0;
+}
+
+$("#select-visible", HTMLButtonElement).addEventListener("click", () => {
+  for (const player of visiblePlayers) selectedPlayers.add(playerKey(player));
+  const first = visiblePlayers[0];
+  selectionAnchor = first ? playerKey(first) : "";
+  renderPlayerList();
+});
+$("#clear-selection", HTMLButtonElement).addEventListener("click", () => {
+  selectedPlayers.clear();
+  selectionAnchor = "";
+  renderPlayerList();
+});
+
+/** @returns {import("./api.js").PlayerIdentity[]} */
+function selectedIdentities() {
+  return listedPlayers.filter((player) => selectedPlayers.has(playerKey(player))).map((player) => {
+    const [gameName, tagLine] = splitRiotID(player.riotId);
+    return { gameName, tagLine, region: player.region };
+  });
+}
+
+/** @param {boolean} enabled */
+async function setSelectedEnabled(enabled) {
+  const identities = selectedIdentities();
+  if (identities.length === 0) return;
+  try {
+    await api.setPlayersEnabled(identities, enabled);
+    selectedPlayers.clear();
+    await Promise.all([renderPlayers(), refreshOverview()]);
+    toast(`${identities.length} players ${enabled ? "enabled" : "paused"}`);
+  } catch (error) { showError(error); }
+}
+
+$("#pause-selected", HTMLButtonElement).addEventListener("click", () => setSelectedEnabled(false));
+$("#enable-selected", HTMLButtonElement).addEventListener("click", () => setSelectedEnabled(true));
+$("#delete-selected", HTMLButtonElement).addEventListener("click", async () => {
+  const identities = selectedIdentities();
+  if (identities.length === 0 || !window.confirm(`Delete ${identities.length} selected players and their saved results?`)) return;
+  try {
+    await api.deletePlayers(identities);
+    selectedPlayers.clear();
+    resetPlayerForm();
+    await Promise.all([renderPlayers(), refreshOverview()]);
+    await runSearch();
+    toast(`${identities.length} players deleted`);
+  } catch (error) { showError(error); }
+});
+
+/** @param {string} riotId @returns {[string, string]} */
+function splitRiotID(riotId) {
+  const separator = riotId.lastIndexOf("#");
+  return [riotId.slice(0, separator), riotId.slice(separator + 1)];
+}
+
+/** @param {PlayerRow} player */
+function editPlayer(player) {
+  editingPlayer = player;
+  const [gameName, tagLine] = splitRiotID(player.riotId);
+  $("#player-form input[name=gameName]", HTMLInputElement).value = gameName;
+  $("#player-form input[name=tagLine]", HTMLInputElement).value = tagLine;
+  $("#player-region", HTMLSelectElement).value = player.region;
+  $("#player-form input[name=tags]", HTMLInputElement).value = player.tags.join(", ");
+  $("#player-form input[name=champions]", HTMLInputElement).value = player.champions.join(", ");
+  $("#player-form input[name=enabled]", HTMLInputElement).checked = player.enabled;
+  $("#player-form input[name=gameName]", HTMLInputElement).readOnly = true;
+  $("#player-form input[name=tagLine]", HTMLInputElement).readOnly = true;
+  $("#player-region", HTMLSelectElement).disabled = true;
+  $("#save-player", HTMLButtonElement).textContent = "Save player";
+  $("#cancel-player-edit", HTMLButtonElement).hidden = false;
+  playerForm.scrollIntoView({ block: "nearest" });
+}
+
+function resetPlayerForm() {
+  editingPlayer = undefined;
+  playerForm.reset();
+  $("#player-form input[name=gameName]", HTMLInputElement).readOnly = false;
+  $("#player-form input[name=tagLine]", HTMLInputElement).readOnly = false;
+  $("#player-region", HTMLSelectElement).disabled = false;
+  $("#player-region", HTMLSelectElement).value = "euw1";
+  $("#save-player", HTMLButtonElement).textContent = "Add player";
+  $("#cancel-player-edit", HTMLButtonElement).hidden = true;
+}
+
+$("#cancel-player-edit", HTMLButtonElement).addEventListener("click", resetPlayerForm);
+
+/** @param {string} value */
+const labels = (value) => value.split(",").map((item) => item.trim()).filter(Boolean);
+
+playerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = new FormData(playerForm);
+  const button = $("#save-player", HTMLButtonElement);
+  button.disabled = true;
+  try {
+    const old = editingPlayer;
+    const [oldName, oldTag] = old ? splitRiotID(old.riotId) : ["", ""];
+    await api.savePlayer(old ? oldName : String(data.get("gameName")), old ? oldTag : String(data.get("tagLine")),
+      old ? old.region : String(data.get("region")), data.has("enabled"), labels(String(data.get("tags") ?? "")), labels(String(data.get("champions") ?? "")));
+    resetPlayerForm();
+    toast(old ? "Player saved" : "Player added. Run Update matches to fetch games.");
+    await Promise.all([renderPlayers(), refreshOverview()]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+/** @param {PlayerRow} player */
+async function togglePlayer(player) {
+  const [gameName, tagLine] = splitRiotID(player.riotId);
+  try {
+    await api.setPlayersEnabled([{ gameName, tagLine, region: player.region }], !player.enabled);
+    await Promise.all([renderPlayers(), refreshOverview()]);
+    toast(player.enabled ? "Player paused" : "Player enabled");
+  } catch (error) { showError(error); }
+}
+
+/** @param {string} gameName @param {string} tagLine @param {string} region */
+async function removePlayer(gameName, tagLine, region) {
+  if (!window.confirm(`Delete ${gameName}#${tagLine} from tracked players and remove their saved results?`)) return;
+  try {
+    await api.deletePlayer(gameName, tagLine, region);
+    resetPlayerForm();
+    await Promise.all([renderPlayers(), refreshOverview()]);
+    await runSearch();
+    toast("Player deleted");
+  } catch (error) { showError(error); }
 }
 
 $("#settings-button", HTMLButtonElement).addEventListener("click", openSettings);
@@ -394,7 +660,7 @@ $("#import-form", HTMLFormElement).addEventListener("submit", async (event) => {
   try {
     const count = await api.importPlayers(String(new FormData($("#import-form", HTMLFormElement)).get("source") ?? ""));
     toast(`Imported ${count} Riot IDs. Run Update matches to fetch their games.`);
-    await Promise.all([renderSettings(), refreshOverview()]);
+    await Promise.all([renderPlayers(), refreshOverview()]);
   } catch (error) {
     showError(error);
   } finally {
@@ -416,6 +682,7 @@ $("#import-db", HTMLButtonElement).addEventListener("click", async () => {
     const backup = await api.importDatabase();
     toast(backup ? `Database imported. Previous data backed up to ${backup}` : "Database imported");
     await Promise.all([renderSettings(), refreshOverview()]);
+    if (!playerView.hidden) await renderPlayers();
     await runSearch();
   } catch (error) {
     showError(error);

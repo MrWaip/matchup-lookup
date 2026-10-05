@@ -2,7 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Matchup Lookup finds recent League of Legends Solo/Duo games of tracked players by lane matchup and opens their replays in the League Client. Windows is the target platform; development happens on macOS. The README and the user's messages are in Russian.
+MatchupFinder.gg finds recent League of Legends Solo/Duo games of tracked players by lane matchup and opens their replays in the League Client. Windows is the target platform; development happens on macOS. The README is in English; respond to the user in the language they use.
+
+The GitHub repository, Go module, release binary filenames, CLI command, and local database directory still use `matchup-lookup` for compatibility. User-facing branding is MatchupFinder.gg.
 
 ## Commands
 

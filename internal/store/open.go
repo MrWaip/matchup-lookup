@@ -95,7 +95,7 @@ func Export(db *sql.DB, output string) error {
 	return os.Chmod(output, 0600)
 }
 
-// Verify checks that path holds an intact matchup-lookup database of any
+// Verify checks that path holds an intact MatchupFinder.gg database of any
 // schema version; Open migrates it afterwards.
 func Verify(path string) error {
 	db, err := sql.Open("sqlite", path)
@@ -116,7 +116,7 @@ func Verify(path string) error {
 			return err
 		}
 		if found == 0 {
-			return fmt.Errorf("not a matchup-lookup database: missing %s", table)
+			return fmt.Errorf("not a MatchupFinder.gg database: missing %s", table)
 		}
 	}
 	return nil

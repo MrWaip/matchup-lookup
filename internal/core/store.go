@@ -177,6 +177,18 @@ func (s *Store) ListPlayers() ([]Player, error) {
 	return players, nil
 }
 
+func (s *Store) ListActivePlayers() ([]Player, error) {
+	rows, err := s.q.ListActivePlayers(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	players := make([]Player, 0, len(rows))
+	for _, r := range rows {
+		players = append(players, playerFromRow(r.Puuid, r.GameName, r.TagLine, r.Region, r.RankTier, r.RankDivision, r.LeaguePoints))
+	}
+	return players, nil
+}
+
 func (s *Store) AddPlayerChampion(puuid, champion string) error {
 	if champion == "" {
 		return nil
